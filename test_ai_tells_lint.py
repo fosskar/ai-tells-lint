@@ -1,5 +1,7 @@
 import contextlib
 import io
+import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -195,6 +197,142 @@ class Python(unittest.TestCase):
             ai_tells_lint.lint('x = """\n', "py", RULES)
 
 
+def configured(config, text, kind="md"):
+    rules = ai_tells_lint.configure(RULES, config)
+    return [h.rule for h in ai_tells_lint.lint(text, kind, rules)]
+
+
+class Config(unittest.TestCase):
+    TEXT = "a pivotal step \u2014 we delve into it\n"
+
+    def assertConfigError(self, config, *fragments):
+        with self.assertRaises(ai_tells_lint.ConfigError) as ctx:
+            ai_tells_lint.configure(RULES, config)
+        for fragment in fragments:
+            self.assertIn(fragment, str(ctx.exception))
+
+    def test_empty_config_keeps_builtin_rules(self):
+        self.assertEqual(ai_tells_lint.configure(RULES, {}), RULES)
+
+    def test_ignore(self):
+        self.assertEqual(
+            configured({"ignore": ["em-dash", "delve"]}, self.TEXT), ["ai-vocabulary"]
+        )
+
+    def test_select(self):
+        self.assertEqual(configured({"select": ["delve"]}, self.TEXT), ["delve"])
+
+    def test_ignore_applies_after_select(self):
+        config = {"select": ["delve", "em-dash"], "ignore": ["em-dash"]}
+        self.assertEqual(configured(config, self.TEXT), ["delve"])
+
+    def test_extend_words(self):
+        config = {"extend": {"ai-vocabulary": ["synergy"]}}
+        self.assertEqual(configured(config, "real synergy\n"), ["ai-vocabulary"])
+        self.assertEqual(configured(config, "a pivotal step\n"), ["ai-vocabulary"])
+
+    def test_extend_phrases(self):
+        config = {"extend": {"delve": ["dig into"]}}
+        self.assertEqual(configured(config, "we dig\ninto it\n"), ["delve"])
+
+    def test_allow_word(self):
+        config = {"allow": {"ai-vocabulary": ["Leverage"]}}
+        self.assertEqual(configured(config, "we leverage it\n"), [])
+        self.assertEqual(configured(config, "a pivotal step\n"), ["ai-vocabulary"])
+
+    def test_allow_phrase(self):
+        config = {"allow": {"copula-dodge": ["serves as the"]}}
+        self.assertEqual(configured(config, "it serves as the gate\n"), [])
+        self.assertEqual(configured(config, "it serves as a gate\n"), ["copula-dodge"])
+
+    def test_allow_every_entry_disables_rule(self):
+        delve = next(r for r in RULES if r.id == "delve")
+        config = {"allow": {"delve": list(delve.items)}}
+        self.assertEqual(configured(config, "we delve into it, plainly\n"), [])
+
+    def test_custom_rules(self):
+        config = {
+            "rule": [
+                {"id": "synergy", "message": "buzzword", "words": ["synergy"]},
+                {
+                    "id": "moving-forward",
+                    "message": "filler",
+                    "phrases": ["moving forward"],
+                },
+                {
+                    "id": "ticket",
+                    "message": "ticket id in prose",
+                    "regex": [r"\bJIRA-\d+"],
+                    "raw": True,
+                    "source": "team style guide",
+                    "examples": ["see `JIRA-12`"],
+                },
+            ]
+        }
+        text = "Moving\nforward, synergy; see `JIRA-12`\n"
+        self.assertEqual(
+            sorted(configured(config, text)), ["moving-forward", "synergy", "ticket"]
+        )
+
+    def test_custom_rule_can_be_extended_and_selected(self):
+        config = {
+            "rule": [{"id": "synergy", "message": "buzzword", "words": ["synergy"]}],
+            "extend": {"synergy": ["synergies"]},
+            "select": ["synergy"],
+        }
+        self.assertEqual(configured(config, "synergies, pivotal\n"), ["synergy"])
+
+    def test_unknown_top_level_key(self):
+        self.assertConfigError({"disable": ["em-dash"]}, "disable")
+
+    def test_unknown_rule_ids(self):
+        for config in (
+            {"ignore": ["em-dahs"]},
+            {"select": ["em-dahs"]},
+            {"extend": {"em-dahs": ["x"]}},
+            {"allow": {"em-dahs": ["x"]}},
+        ):
+            with self.subTest(config):
+                self.assertConfigError(config, "unknown rule id", "em-dahs")
+
+    def test_wrong_types(self):
+        for config in (
+            {"ignore": "em-dash"},
+            {"select": [1]},
+            {"extend": ["synergy"]},
+            {"allow": {"ai-vocabulary": "leverage"}},
+            {"extend": {"ai-vocabulary": [""]}},
+            {"rule": {"id": "x"}},
+        ):
+            with self.subTest(config):
+                self.assertConfigError(config)
+
+    def test_extend_regex_rule(self):
+        self.assertConfigError({"extend": {"em-dash": ["x"]}}, "em-dash", "regex")
+
+    def test_allow_entry_not_in_rule(self):
+        self.assertConfigError(
+            {"allow": {"ai-vocabulary": ["synergy"]}}, "ai-vocabulary", "synergy"
+        )
+
+    def test_bad_custom_rules(self):
+        base = {"id": "x", "message": "m"}
+        for rule, fragment in (
+            ({**base}, "exactly one of"),
+            ({**base, "words": ["a"], "regex": ["b"]}, "exactly one of"),
+            ({"id": "x", "words": ["a"]}, "message"),
+            ({"message": "m", "words": ["a"]}, "id"),
+            ({**base, "id": "Bad Id", "words": ["a"]}, "Bad Id"),
+            ({**base, "words": []}, "words"),
+            ({**base, "regex": ["("]}, "regex"),
+            ({**base, "words": ["a"], "raw": "yes"}, "raw"),
+            ({**base, "words": ["a"], "severity": "high"}, "severity"),
+            ({**base, "id": "em-dash", "regex": ["x"]}, "em-dash"),
+        ):
+            with self.subTest(rule):
+                self.assertConfigError({"rule": [rule]}, fragment)
+
+
 class Cli(unittest.TestCase):
     def run_main(self, *args):
         out, err = io.StringIO(), io.StringIO()
@@ -221,6 +359,52 @@ class Cli(unittest.TestCase):
         code, out, err = self.run_main(HERE / "rules.toml")
         self.assertEqual((code, out), (2, ""))
         self.assertIn("unsupported file type", err)
+
+    def write_config(self, directory, text):
+        path = Path(directory) / ".ai-tells-lint.toml"
+        path.write_text(text)
+        return path
+
+    def test_config_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self.write_config(tmp, 'select = ["em-dash"]\n')
+            code, out, _ = self.run_main("--config", config, FIXTURES / "hits.sh")
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            [line.split(": ")[1] for line in out.splitlines()], ["em-dash"]
+        )
+
+    def test_config_found_in_parent_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_config(tmp, 'ignore = ["copula-dodge", "ai-vocabulary"]\n')
+            sub = Path(tmp) / "sub"
+            sub.mkdir()
+            cwd = os.getcwd()
+            os.chdir(sub)
+            try:
+                code, out, _ = self.run_main(FIXTURES / "hits.sh")
+            finally:
+                os.chdir(cwd)
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            [line.split(": ")[1] for line in out.splitlines()], ["em-dash"]
+        )
+
+    def test_bad_config_exit_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for text in ('ignore = ["em-dahs"]\n', "ignore = [\n"):
+                with self.subTest(text):
+                    config = self.write_config(tmp, text)
+                    code, out, err = self.run_main(
+                        "--config", config, FIXTURES / "hits.sh"
+                    )
+                    self.assertEqual((code, out), (2, ""))
+                    self.assertIn(str(config), err)
+
+    def test_missing_config_exit_two(self):
+        code, out, err = self.run_main("--config", HERE / "missing.toml", "x.md")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("missing.toml", err)
 
 
 if __name__ == "__main__":

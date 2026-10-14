@@ -1,11 +1,14 @@
 """Flag LLM writing tells in markdown prose and in nix, shell and python comments.
 
-usage: ai-tells-lint FILE...
+usage: ai-tells-lint [--config PATH] FILE...
 
 Prints `path:line:col: rule-id: message: match` per hit. Exits 1 on any hit
-and 2 when a file cannot be read or scanned.
+and 2 when a file cannot be read or scanned or the configuration is invalid.
+Without --config, reads .ai-tells-lint.toml from the working directory or its
+nearest parent that has one.
 """
 
+import argparse
 import bisect
 import io
 import re
@@ -17,7 +20,11 @@ from pathlib import Path
 import tomllib
 
 RULES_PATH = Path(__file__).with_name("rules.toml")
+CONFIG_NAME = ".ai-tells-lint.toml"
 RULE_KINDS = ("words", "phrases", "regex")
+RULE_KEYS = {"id", "message", "source", "raw", "examples", *RULE_KINDS}
+CONFIG_KEYS = {"select", "ignore", "extend", "allow", "rule"}
+RULE_ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 # BREAK replaces text outside the scanned region; nothing may match across it.
 # MASK replaces code spans, quotes and URLs inside prose; a sentence-level
@@ -47,11 +54,16 @@ class ScanError(Exception):
     pass
 
 
+class ConfigError(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class Rule:
     id: str
     message: str
     kind: str
+    items: tuple
     pattern: re.Pattern
     raw: bool
     examples: tuple
@@ -90,26 +102,136 @@ def _compile(kind, items):
     return re.compile("|".join(alts), re.IGNORECASE)
 
 
+def _strings(value, what, allow_empty=True):
+    if (
+        not isinstance(value, list)
+        or not all(isinstance(v, str) and v for v in value)
+        or not (value or allow_empty)
+    ):
+        raise ConfigError(f"{what}: expected a list of non-empty strings")
+    return value
+
+
+def _table(value, what):
+    if not isinstance(value, dict):
+        raise ConfigError(f"{what}: expected a table")
+    return value
+
+
+def _rule(entry, what):
+    entry = _table(entry, what)
+    rule_id = entry.get("id")
+    if not isinstance(rule_id, str) or not RULE_ID.match(rule_id):
+        raise ConfigError(f"{what}: id {rule_id!r} must be lowercase words joined by -")
+    what = f"rule {rule_id}"
+    if unknown := sorted(entry.keys() - RULE_KEYS):
+        raise ConfigError(f"{what}: unknown keys {unknown}")
+    if not isinstance(entry.get("message"), str) or not entry["message"]:
+        raise ConfigError(f"{what}: needs a non-empty message")
+    kinds = [k for k in RULE_KINDS if k in entry]
+    if len(kinds) != 1:
+        raise ConfigError(f"{what}: needs exactly one of {', '.join(RULE_KINDS)}")
+    kind = kinds[0]
+    items = _strings(entry[kind], f"{what}: {kind}", allow_empty=False)
+    raw = entry.get("raw", False)
+    if not isinstance(raw, bool):
+        raise ConfigError(f"{what}: raw must be true or false")
+    examples = _strings(entry.get("examples", []), f"{what}: examples")
+    return _make_rule(rule_id, entry["message"], kind, items, raw, examples)
+
+
+def _make_rule(rule_id, message, kind, items, raw, examples):
+    try:
+        pattern = _compile(kind, items)
+    except re.error as e:
+        raise ConfigError(f"rule {rule_id}: bad regex: {e}") from e
+    return Rule(
+        id=rule_id,
+        message=message,
+        kind=kind,
+        items=tuple(items),
+        pattern=pattern,
+        raw=raw,
+        examples=tuple(examples),
+    )
+
+
 def load_rules(path=RULES_PATH):
     with open(path, "rb") as f:
         data = tomllib.load(f)
-    rules = []
-    for entry in data["rule"]:
-        kinds = [k for k in RULE_KINDS if k in entry]
-        if len(kinds) != 1:
-            raise ValueError(f"rule {entry['id']}: needs exactly one of {RULE_KINDS}")
-        kind = kinds[0]
-        rules.append(
-            Rule(
-                id=entry["id"],
-                message=entry["message"],
-                kind=kind,
-                pattern=_compile(kind, entry[kind]),
-                raw=entry.get("raw", False),
-                examples=tuple(entry.get("examples", ())),
+    return [_rule(entry, f"{path}: rule") for entry in data["rule"]]
+
+
+def find_config(start):
+    for directory in (start, *start.parents):
+        if (directory / CONFIG_NAME).is_file():
+            return directory / CONFIG_NAME
+    return None
+
+
+def load_config(path):
+    try:
+        with open(path, "rb") as f:
+            return tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise ConfigError(str(e)) from e
+
+
+def configure(rules, config):
+    """Apply a parsed .ai-tells-lint.toml to the built-in rules."""
+    if unknown := sorted(config.keys() - CONFIG_KEYS):
+        raise ConfigError(f"unknown keys {unknown}; expected {sorted(CONFIG_KEYS)}")
+    custom = config.get("rule", [])
+    if not isinstance(custom, list):
+        raise ConfigError("rule: expected an array of tables ([[rule]])")
+    rules = rules + [_rule(entry, "rule") for entry in custom]
+    by_id = {}
+    for rule in rules:
+        if rule.id in by_id:
+            raise ConfigError(f"rule {rule.id}: duplicate rule id")
+        by_id[rule.id] = rule
+
+    def known(rule_id, what):
+        if rule_id not in by_id:
+            raise ConfigError(f"{what}: unknown rule id {rule_id!r}")
+        return by_id[rule_id]
+
+    extend = _table(config.get("extend", {}), "extend")
+    allow = _table(config.get("allow", {}), "allow")
+    for rule_id in extend.keys() | allow.keys():
+        rule = known(rule_id, "extend" if rule_id in extend else "allow")
+        if rule.kind == "regex":
+            raise ConfigError(
+                f"rule {rule_id}: is a regex rule; extend and allow take only"
+                " words and phrases rules"
             )
-        )
-    return rules
+        added = _strings(extend.get(rule_id, []), f"extend.{rule_id}")
+        allowed = _strings(allow.get(rule_id, []), f"allow.{rule_id}")
+        present = {i.casefold() for i in rule.items}
+        if missing := [a for a in allowed if a.casefold() not in present]:
+            raise ConfigError(f"allow.{rule_id}: not in the rule: {missing}")
+        drop = {a.casefold() for a in allowed}
+        items = [i for i in (*rule.items, *added) if i.casefold() not in drop]
+        if items:
+            by_id[rule_id] = _make_rule(
+                rule.id, rule.message, rule.kind, items, rule.raw, rule.examples
+            )
+        else:
+            del by_id[rule_id]
+
+    selected = by_id.keys()
+    if "select" in config:
+        selected = _strings(config["select"], "select")
+        for rule_id in selected:
+            known(rule_id, "select")
+    ignored = _strings(config.get("ignore", []), "ignore")
+    for rule_id in ignored:
+        known(rule_id, "ignore")
+    return [
+        by_id[r.id]
+        for r in rules
+        if r.id in by_id and r.id in selected and r.id not in ignored
+    ]
 
 
 class Region:
@@ -361,9 +483,32 @@ def lint(text, kind, rules):
 
 
 def main(argv):
+    parser = argparse.ArgumentParser(
+        prog="ai-tells-lint",
+        description="Flag LLM writing tells in markdown prose and in nix, shell"
+        " and python comments.",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        metavar="PATH",
+        help=f"configuration file; default: nearest {CONFIG_NAME} upwards from"
+        " the working directory",
+    )
+    parser.add_argument("files", nargs="*", metavar="FILE")
+    args = parser.parse_args(argv)
+
+    config_path = args.config or find_config(Path.cwd())
     rules = load_rules()
+    if config_path:
+        try:
+            rules = configure(rules, load_config(config_path))
+        except ConfigError as e:
+            print(f"ai-tells-lint: {config_path}: {e}", file=sys.stderr)
+            return 2
+
     status = 0
-    for name in argv:
+    for name in args.files:
         kind = Path(name).suffix[1:]
         if kind not in SCANNERS:
             print(f"{name}: unsupported file type", file=sys.stderr)
