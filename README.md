@@ -55,23 +55,39 @@ Add the flake input:
 }
 ```
 
-Import the module into your treefmt-nix configuration:
+With [flake-parts](https://flake.parts) and `treefmt-nix.flakeModule`, import the module into `perSystem.treefmt`:
 
 ```nix
 { inputs, ... }:
 {
-  imports = [ inputs.ai-tells-lint.treefmtModules.default ];
+  imports = [ inputs.treefmt-nix.flakeModule ];
 
-  programs.ai-tells-lint = {
-    enable = true;
-    excludes = [ "vendor/*" ];
-    settings = {
-      ignore = [ "em-dash" ];
-      allow.ai-vocabulary = [ "leverage" ];
+  perSystem.treefmt = {
+    imports = [ inputs.ai-tells-lint.treefmtModules.default ];
+
+    programs.ai-tells-lint = {
+      enable = true;
+      excludes = [ "vendor/*" ];
+      settings = {
+        ignore = [ "em-dash" ];
+        allow.ai-vocabulary = [ "leverage" ];
+      };
     };
   };
 }
 ```
+
+Without flake-parts, import it where you call `treefmt-nix.lib.evalModule`:
+
+```nix
+treefmt-nix.lib.evalModule pkgs {
+  imports = [ ai-tells-lint.treefmtModules.default ];
+  projectRootFile = "flake.nix";
+  programs.ai-tells-lint.enable = true;
+}
+```
+
+`nix fmt` then runs ai-tells-lint with your other formatters and fails on a hit, and so does the treefmt flake check where you expose one (`treefmt-nix.flakeModule` does by default).
 
 | Option                            | Default                            | Description                                                                                                         |
 | --------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -181,7 +197,7 @@ These sources documented the patterns the rules look for. They are listed from p
 - **[Wikipedia: Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing)**: words from its list of AI vocabulary, and the categories behind several rules: undue emphasis, vague attributions, negative parallelisms, superficial analyses, collaborative communication and reference markup bugs.
 - **[LLM cliche highlighter](https://tools.simonwillison.net/llm-cliche-highlighter)** by Simon Willison: the patterns behind most regex rules. Part of its patterns are adapted from the Wikipedia guide.
 - **[vale-ai-tells](https://github.com/tbhb/vale-ai-tells)** by Tony Burns: words and phrases from its Vale styles, for example `EmDashUsage`, `OverusedVocabulary`, `ServesAsDodge`, `PromotionalPuffery` and `ClosingPleasantries`.
-- **Farid Zakaria**: the post [Hiding my AI slop from my Nix friends](https://fzakaria.com/2026/09/28/hiding-my-ai-slop-from-my-nix-friends), `writingStyle` in [nix-home `agent-settings.nix`](https://github.com/fzakaria/nix-home/blob/master/users/fmzakari/agent-settings.nix) and [omnibin `tools/check-prose.py`](https://github.com/fzakaria/omnibin/blob/fc56e228eaf26407d976d59f4dcda306ead87345/tools/check-prose.py), which build on the Wikipedia guide and the highlighter: the idea of a deterministic prose check in the build, and words and phrases for several rules.
+- **Farid Zakaria**: the post [Hiding my AI slop from my Nix friends](https://fzakaria.com/2026/09/28/hiding-my-ai-slop-from-my-nix-friends), `writingStyle` in [nix-home `agent-settings.nix`](https://github.com/fzakaria/nix-home/blob/master/users/fmzakari/agent-settings.nix) and [omnibin `tools/check-prose.py`](https://github.com/fzakaria/omnibin/blob/fc56e228eaf26407d976d59f4dcda306ead87345/tools/check-prose.py), which build on the Wikipedia guide and the highlighter: the idea of a deterministic prose check in the build, and words and phrases for several rules. His `check-prose.py` is a standalone script run as a flake check; ai-tells-lint is a treefmt formatter instead, so it plugs into an existing treefmt-nix setup.
 - **[A Hacker News comment by tyre](https://news.ycombinator.com/item?id=49413456)**, a personal list of banned phrases posted under Fabien Sanglard's [My agent.md to improve LLM-assisted code quality](https://fabiensanglard.net/agent.md/index.html): words and phrases for eight rules, which cite it as "HN tyre".
 
 Related, not a rule source: [proselint](https://github.com/amperser/proselint) (BSD-3-Clause) and its Vale port [vale-cli/proselint](https://github.com/vale-cli/proselint) check general prose quality.
