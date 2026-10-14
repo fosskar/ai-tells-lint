@@ -151,6 +151,7 @@ The ids in `select`, `ignore`, `extend` and `allow` can name built-in and added 
 | `participle-tail`        | A trailing `, highlighting its ...` clause that adds commentary.                                   |
 | `signposting`            | Explainer phrases that announce the structure of the text.                                         |
 | `therapy-voice`          | Counselling phrases such as `sit with that`.                                                       |
+| `stilted-wording`        | Formal or literary wording where an everyday phrase exists, such as `tire of`.                     |
 | `markup-artefact`        | Chatbot citation markup, `utm_source` tracking parameters and AI attribution lines, also in links. |
 
 ## Development

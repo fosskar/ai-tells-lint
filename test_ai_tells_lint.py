@@ -132,6 +132,10 @@ class Markdown(unittest.TestCase):
             "chatbot-phrase", rule_ids("Don\u2019t hesitate to reach out\n", "md")
         )
 
+    def test_stilted_wording_spares_the_everyday_form(self):
+        self.assertEqual(rule_ids("readers tire of it\n", "md"), ["stilted-wording"])
+        self.assertEqual(lint("readers get tired of it\n", "md"), [])
+
     def test_raw_rule_ignores_masking_but_others_do_not(self):
         text = "see `oaicite` and https://x.test/pivotal?utm_source=openai\n"
         self.assertEqual(rule_ids(text, "md"), ["markup-artefact", "markup-artefact"])

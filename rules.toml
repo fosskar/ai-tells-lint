@@ -347,6 +347,13 @@ phrases = [
 examples = ["That's not nothing."]
 
 [[rule]]
+id = "stilted-wording"
+message = "formal or literary wording; use the everyday phrase, e.g. \"get tired of\""
+source = "ai-tells-lint"
+phrases = ["tire of", "tires of", "tiring of"]
+examples = ["Readers tire of the same phrases."]
+
+[[rule]]
 id = "markup-artefact"
 message = "chatbot citation or tracking artefact; remove it"
 source = "Wikipedia internal formatting and reference markup bugs; Willison llm-cliche-highlighter; vale-ai-tells CommitAttribution"
