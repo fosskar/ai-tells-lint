@@ -3,12 +3,17 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
     {
       self,
       nixpkgs,
+      treefmt-nix,
     }:
     let
       systems = [
@@ -23,6 +28,8 @@
         default = ai-tells-lint;
       });
 
+      treefmtModules.default = ./nix/treefmt-module.nix;
+
       checks = forAllSystems (
         pkgs:
         let
@@ -31,6 +38,10 @@
         {
           inherit ai-tells-lint;
           inherit (ai-tells-lint.passthru.tests) unit cli;
+          treefmt-module = pkgs.callPackage ./nix/treefmt-module-test.nix {
+            inherit treefmt-nix;
+            treefmtModule = self.treefmtModules.default;
+          };
         }
       );
     };
