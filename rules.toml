@@ -7,7 +7,10 @@
 id = "em-dash"
 message = "em dash; use a comma, colon, parentheses or a new sentence"
 source = "vale-ai-tells EmDashUsage; Wikipedia Signs of AI writing; fzakaria check-prose"
-regex = ['—']
+regex = [
+  # not inside a doubled dash or next to cjk text, where —— is the standard dash
+  '(?<![—\u2E3A\u3000-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uFF00-\uFFEF])—(?![—\u2E3A\u3000-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uFF00-\uFFEF])',
+]
 examples = ["Builds run remotely — the worker pulls jobs."]
 
 [[rule]]
@@ -198,7 +201,7 @@ id = "challenges-boilerplate"
 message = "challenges-and-outlook boilerplate; say what the problem is"
 source = "Wikipedia outline-like conclusions; Willison llm-cliche-highlighter; vale-ai-tells DespiteChallenges"
 regex = [
-  '\bdespite\s+(?:these|those|such|its|their|the|numerous|significant|ongoing)\s+(?:[\w-]+\s+)?(?:challenges|limitations|drawbacks|hurdles|setbacks)\b',
+  '\bdespite\s+(?:these|those|such|its|their|the|numerous|significant|ongoing)\s+(?:[\w-]+\s+)?(?:challenges|hurdles|setbacks)\b',
   '\bchallenges\s+remain\b',
   '\bremains\s+to\s+be\s+seen\b',
   '\bonly\s+time\s+will\s+tell\b',
@@ -210,30 +213,30 @@ id = "chatbot-phrase"
 message = "chatbot correspondence; delete it"
 source = "Wikipedia collaborative communication; vale-ai-tells ClosingPleasantries and SycophancyMarkers; HN tyre"
 phrases = [
-  "absolutely!",
   "as a large language model",
   "as an AI language model",
   "as of my knowledge cutoff",
   "as of my last update",
-  "certainly!",
-  "don't hesitate to",
+  "don't hesitate to ask",
+  "don't hesitate to contact",
+  "don't hesitate to reach out",
   "excellent question",
   "feel free to ask",
   "feel free to reach out",
   "great question",
   "happy coding",
-  "happy to help",
+  "happy to help!",
   "hope this helps",
   "hopefully this helps",
   "I hope this clarifies",
   "I hope this helps",
-  "I'd be happy to",
+  "I'd be happy to help",
+  "I'm happy to help",
   "is there anything else",
   "let me know if there's anything",
   "let me know if you have any questions",
   "let me know if you need",
   "my knowledge cutoff",
-  "of course!",
   "say the word",
   "would you like me to",
   "you're absolutely right",
@@ -242,12 +245,21 @@ phrases = [
 examples = ["I hope this helps!"]
 
 [[rule]]
+id = "chatbot-opener"
+message = "chatbot correspondence; delete it"
+source = "Wikipedia collaborative communication; vale-ai-tells ClosingPleasantries and SycophancyMarkers"
+# only at the start of a sentence; mid-sentence "of course!" is ordinary emphasis
+regex = ['(?<![\w,;(]\s)(?<![\w,;(])(?:absolutely|certainly|of\s+course)!']
+examples = ["Certainly! Here is the draft."]
+
+[[rule]]
 id = "negative-parallelism"
 message = "negative parallelism; state the positive claim"
 source = "Wikipedia negative parallelisms; Willison llm-cliche-highlighter; fzakaria writingStyle; HN tyre"
 regex = [
-  '\bnot\s+(?:just|merely|simply)\b[^.!?;:,]{0,60},\s*but\b',
-  '(?<!\bsince\s)(?<!\bbecause\s)(?<!\bas\s)(?<!\bif\s)(?<!\bwhen\s)(?<!\bwhile\s)\b(?:it|this|that)(?:\s+is\s+not|\s+was\s+not|[\x27\u2019]s\s+not)\b[^.!?]{0,60}?\s*[,;\u2014]\s*(?:it|this|that)(?:\s+is|\s+was|[\x27\u2019]s)\b',
+  '\b(?:(?:is|are|was|were)\s+not|isn[\x27\u2019]t|aren[\x27\u2019]t|wasn[\x27\u2019]t|[\x27\u2019]s\s+not)\s+(?:just|merely|simply)\b(?!\s+any\b)[^.!?;:,]{0,60},\s*but\b',
+  # only at the start of a clause, so "where it is not set, it is" stays quiet
+  '(?<![\w,;()-]\s)(?<![\w,;()-])\b(?:it|this|that)(?:\s+is\s+not|\s+was\s+not|[\x27\u2019]s\s+not)\b[^.!?]{0,60}?\s*[,;\u2014]\s*(?:it|this|that)(?:\s+is|\s+was|[\x27\u2019]s)\b',
   '\b(?:isn[\x27\u2019]t|is\s+not)\s+(?:just|only|merely)\b[^.!?]{0,60}?\s*[.;,\u2014]\s*it(?:[\x27\u2019]s|\s+is)\b',
 ]
 examples = ["It is not just a cache, but a build farm."]
@@ -257,7 +269,6 @@ id = "performative-honesty"
 message = "announced honesty; just say it"
 source = "Willison llm-cliche-highlighter; fzakaria writingStyle; HN tyre"
 phrases = [
-  "frankly,",
   "honestly,",
   "I will not pretend",
   "I won't pretend",
@@ -269,7 +280,7 @@ phrases = [
   "the honest answer",
   "to be blunt",
   "to be frank",
-  "to be honest",
+  "to be honest,",
   "truthfully,",
 ]
 examples = ["To be honest, the cache is slow."]
@@ -283,7 +294,7 @@ regex = [
   '\bthe\s+punchline\s+(?:is|was)\b',
   '\bplot\s+twist\b',
   '\bthe\s+deeper\s+point\b',
-  '\bthe\s+key\s+insight\b',
+  '\bthe\s+key\s+insight(?:\s+here)?\s*(?:is\b|:)',
   '\bthat[\x27\u2019]s\s+the\s+trap\b',
   '\bthis\s+matters\s+because\b',
   '\b(?:that|this)(?:\s+is|\s+was|[\x27\u2019]s)\s+the\s+(?:whole|entire)\s+(?:point|game)\b',
@@ -304,10 +315,7 @@ id = "signposting"
 message = "explainer signposting; get to the point"
 source = "vale-ai-tells UnpackExplore and OpeningCliches; Wikipedia AI vocabulary; HN tyre"
 phrases = [
-  "at the end of the day",
   "deep dive",
-  "dive into",
-  "full stop",
   "in conclusion",
   "in the realm of",
   "in today's fast-paced",
@@ -318,6 +326,17 @@ phrases = [
   "without further ado",
 ]
 examples = ["Let's dive into the details."]
+
+[[rule]]
+id = "signposting-emphatic"
+message = "emphatic signposting; get to the point"
+source = "HN tyre; vale-ai-tells ConclusionMarkers"
+regex = [
+  # "Full stop." as a closer, not the unicode name FULL STOP
+  '(?:(?<=[.!?,;]\s)|(?<=[.!?]))(?-i:[Ff]ull)\s+stop[.!]',
+  '(?<![\w,;(]\s)(?<![\w,;(])at\s+the\s+end\s+of\s+the\s+day\b',
+]
+examples = ["That is the rule. Full stop.", "At the end of the day, it works."]
 
 [[rule]]
 id = "therapy-voice"

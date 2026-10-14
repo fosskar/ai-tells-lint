@@ -61,13 +61,32 @@ INLINE_MASKS = [
     re.compile(r'"[^"]*"'),
 ]
 
-MD_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+MD_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
+MD_LIST_ITEM = re.compile(r"^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
 MD_HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 SH_HEREDOC = re.compile(r"<<(-?)[ \t]*\\?(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
 SH_WORD_START = " \t\n;|&()<>"
 C_COMMENT_STAR = re.compile(r"\n[ \t]*(\*+)(?!/)")
 # a slash after one of these starts a js regex literal, not a division
-JS_REGEX_AFTER = set("(,=:[!&|?{};+-*%<>~^")
+JS_REGEX_AFTER = {
+    *"(,=:[!&|?{};+-*%<>~^",
+    *[
+        "return",
+        "typeof",
+        "instanceof",
+        "in",
+        "of",
+        "new",
+        "delete",
+        "void",
+        "throw",
+        "case",
+        "do",
+        "else",
+        "yield",
+        "await",
+    ],
+}
 RS_RAW_STRING = re.compile(r'b?r(#*)"')
 YAML_BLOCK_HEADER = re.compile(r"[|>][-+0-9]*[ \t]*(#[^\n]*)?(?=\n|\Z)")
 
@@ -322,10 +341,33 @@ def _line_comment(text, region, i):
 def scan_md(text):
     region = Region(text, keep_all=True)
     fence = None
+    # an indented code block starts after a blank line, outside a list, where
+    # indented lines are continuation paragraphs instead
+    in_list = in_code = False
+    prev_blank = True
     pos = 0
     for line in text.split("\n"):
         end = pos + len(line)
         m = MD_FENCE.match(line)
+        blank = not line.strip()
+        indent = len(line.expandtabs(4)) - len(line.expandtabs(4).lstrip())
+        if not fence and not blank:
+            if in_code and indent >= 4:
+                region.drop(pos, end)
+                pos = end + 1
+                continue
+            in_code = False
+            if MD_LIST_ITEM.match(line):
+                in_list = True
+            elif indent < 2 and prev_blank:
+                in_list = False
+            if indent >= 4 and prev_blank and not in_list and not m:
+                in_code = True
+                region.drop(pos, end)
+                pos = end + 1
+                prev_blank = False
+                continue
+        prev_blank = blank
         if fence:
             region.drop(pos, end)
             if (
@@ -431,6 +473,40 @@ def _skip_quoted(text, i, quote):
     return i + 1
 
 
+def _sh_skip_dquote(text, i):
+    n = len(text)
+    i += 1
+    while i < n and text[i] != '"':
+        if text[i] == "\\":
+            i += 2
+        elif text.startswith("$(", i):
+            i = _sh_skip_subst(text, i + 2)
+        else:
+            i += 1
+    return i + 1
+
+
+def _sh_skip_subst(text, i):
+    """Skip a $( ) body, which has its own quoting, to after its )."""
+    n = len(text)
+    depth = 1
+    while i < n:
+        c = text[i]
+        if c == "\\":
+            i += 2
+        elif c == "'":
+            close = text.find("'", i + 1)
+            i = n if close < 0 else close + 1
+        elif c == '"':
+            i = _sh_skip_dquote(text, i)
+        else:
+            depth += {"(": 1, ")": -1}.get(c, 0)
+            i += 1
+            if depth == 0:
+                return i
+    return n
+
+
 def scan_sh(text):
     region = Region(text, keep_all=False)
     n = len(text)
@@ -455,7 +531,9 @@ def scan_sh(text):
         elif c == "'":
             i = text.find("'", i + 1)
             i = n if i < 0 else i + 1
-        elif c in '"`':
+        elif c == '"':
+            i = _sh_skip_dquote(text, i)
+        elif c == "`":
             i = _skip_quoted(text, i, c)
         elif text.startswith("$'", i):
             i = _skip_quoted(text, i + 1, "'")
@@ -622,6 +700,12 @@ def scan_c(text, lang):
             end = text.find(close, m.end())
             i = n if end < 0 else end + len(close)
             last = '"'
+        elif c.isalpha() or c in "_$":
+            j = i + 1
+            while j < n and (text[j].isalnum() or text[j] in "_$"):
+                j += 1
+            last = text[i:j]
+            i = j
         else:
             if c == "{":
                 stack[-1] += 1
@@ -806,7 +890,7 @@ def lint(text, kind, rules):
                 if suppressed(line, rule.id):
                     continue
                 col = m.start() - line_starts[line - 1] + 1
-                matched = " ".join(text[m.start() : m.end()].split())
+                matched = " ".join(region[m.start() : m.end()].split())
                 found.append(Hit(line, col, rule.id, rule.message, matched))
             if len(found) >= rule.min_hits:
                 hits.update(found)
@@ -861,8 +945,12 @@ def main(argv):
         try:
             ignored = _ignored_rules(name, per_file)
             file_rules = [r for r in rules if r.id not in ignored]
-            hits = lint(Path(name).read_text(encoding="utf-8"), kind, file_rules)
-        except (OSError, UnicodeDecodeError, ScanError) as e:
+            data = Path(name).read_bytes()
+            encoding = "utf-8"
+            if kind == "py":
+                encoding = tokenize.detect_encoding(io.BytesIO(data).readline)[0]
+            hits = lint(data.decode(encoding), kind, file_rules)
+        except (OSError, UnicodeDecodeError, LookupError, SyntaxError, ScanError) as e:
             print(f"{name}: {e}", file=sys.stderr)
             status = 2
             continue

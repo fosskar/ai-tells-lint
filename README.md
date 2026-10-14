@@ -35,7 +35,7 @@ The file suffix selects what is scanned:
 
 | Suffix                                                       | Scanned text                                                                                                                                                                                                                                       |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.md`                                                        | Prose. Fenced code, HTML comments and tags, inline code, URLs, link targets and double-quoted text are skipped.                                                                                                                                    |
+| `.md`                                                        | Prose. Fenced and indented code, HTML comments and tags, inline code, URLs, link targets and double-quoted text are skipped.                                                                                                                       |
 | `.nix`                                                       | `#` and `/* */` comments, including comments inside `${ }` interpolations. Strings are skipped.                                                                                                                                                    |
 | `.sh`                                                        | `#` comments. Strings, parameter expansions such as `${a#b}`, heredoc bodies and the shebang line are skipped.                                                                                                                                     |
 | `.py`                                                        | `#` comments, found with the python tokenizer. Strings and docstrings are skipped, and so is a shebang on line 1.                                                                                                                                  |
@@ -200,11 +200,13 @@ x = cache_size  # the pivotal value, from the spec  ai-tells-lint: allow ai-voca
 | `vague-attribution`      | Claims attributed to unnamed experts or studies.                                                   |
 | `challenges-boilerplate` | Closing sentences about remaining challenges and an uncertain future.                              |
 | `chatbot-phrase`         | Chat replies left in the text: greetings, offers to help, knowledge cutoff disclaimers.            |
+| `chatbot-opener`         | `Certainly!`, `Absolutely!` or `Of course!` opening a sentence.                                    |
 | `negative-parallelism`   | `not just X, but Y` and `it is not X, it is Y`.                                                    |
 | `performative-honesty`   | `to be honest`, `let me be clear` and similar.                                                     |
 | `staged-reveal`          | Lead-ins that announce a point before making it.                                                   |
 | `participle-tail`        | A trailing `, highlighting its ...` clause that adds commentary.                                   |
 | `signposting`            | Explainer phrases that announce the structure of the text.                                         |
+| `signposting-emphatic`   | `Full stop.` as a closer and `At the end of the day` opening a sentence.                           |
 | `therapy-voice`          | Counselling phrases such as `sit with that`.                                                       |
 | `stilted-wording`        | Formal or literary wording where an everyday phrase exists, such as `tire of`.                     |
 | `markup-artefact`        | Chatbot citation markup, `utm_source` tracking parameters and AI attribution lines, also in links. |

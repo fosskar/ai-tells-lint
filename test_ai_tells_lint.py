@@ -16,7 +16,7 @@ EXPECTED_HITS = {
         (3, "em-dash", "—"),
         (4, "copula-dodge", "serves as the"),
         (5, "ai-vocabulary", "pivotal"),
-        (6, "negative-parallelism", "not just"),
+        (6, "negative-parallelism", "is not just"),
         (7, "em-dash", "—"),
         (8, "chatbot-phrase", "I hope"),
         (10, "markup-artefact", "utm_source=chatgpt.com"),
@@ -25,7 +25,7 @@ EXPECTED_HITS = {
         (1, "copula-dodge", "serves as the"),
         (3, "ai-vocabulary", "pivotal"),
         (4, "em-dash", "—"),
-        (5, "negative-parallelism", "not just"),
+        (5, "negative-parallelism", "is not just"),
     ],
     "hits.sh": [
         (2, "copula-dodge", "serves as the"),
@@ -36,50 +36,50 @@ EXPECTED_HITS = {
         (1, "copula-dodge", "serves as the"),
         (4, "ai-vocabulary", "pivotal"),
         (5, "em-dash", "—"),
-        (7, "negative-parallelism", "not just"),
+        (7, "negative-parallelism", "is not just"),
     ],
     "hits.js": [
         (1, "copula-dodge", "serves as the"),
         (2, "ai-vocabulary", "pivotal"),
         (2, "em-dash", "—"),
-        (4, "negative-parallelism", "not just"),
+        (4, "negative-parallelism", "is not just"),
         (7, "chatbot-phrase", "I hope"),
     ],
     "hits.rs": [
         (1, "copula-dodge", "serves as the"),
         (3, "ai-vocabulary", "pivotal"),
         (3, "em-dash", "—"),
-        (5, "negative-parallelism", "not just"),
+        (5, "negative-parallelism", "is not just"),
     ],
     "hits.c": [
         (1, "copula-dodge", "serves as the"),
         (4, "ai-vocabulary", "pivotal"),
         (4, "em-dash", "—"),
-        (5, "negative-parallelism", "not just"),
+        (5, "negative-parallelism", "is not just"),
     ],
     "hits.java": [
         (1, "copula-dodge", "serves as the"),
         (5, "ai-vocabulary", "pivotal"),
         (5, "em-dash", "—"),
-        (6, "negative-parallelism", "not just"),
+        (6, "negative-parallelism", "is not just"),
     ],
     "hits.yaml": [
         (1, "copula-dodge", "serves as the"),
         (2, "ai-vocabulary", "pivotal"),
         (2, "em-dash", "—"),
-        (4, "negative-parallelism", "not just"),
+        (4, "negative-parallelism", "is not just"),
     ],
     "hits.toml": [
         (1, "copula-dodge", "serves as the"),
         (2, "ai-vocabulary", "pivotal"),
         (2, "em-dash", "—"),
-        (3, "negative-parallelism", "not just"),
+        (3, "negative-parallelism", "is not just"),
     ],
     "hits.py": [
         (1, "copula-dodge", "serves as the"),
         (2, "ai-vocabulary", "pivotal"),
         (2, "em-dash", "—"),
-        (3, "negative-parallelism", "not just"),
+        (3, "negative-parallelism", "is not just"),
     ],
 }
 
@@ -476,6 +476,87 @@ class PerFileIgnores(unittest.TestCase):
                 ai_tells_lint.configure(RULES, config)
 
 
+class CorpusFalsePositives(unittest.TestCase):
+    # wrong hits found by linting pre-2022 human text; see the corpus study
+    def test_chinese_dash(self):
+        self.assertEqual(lint("这是一个例子\u2014\u2014它很简单。\n", "md"), [])
+
+    def test_doubled_dash(self):
+        self.assertEqual(lint("a\u2014\u2014b\n", "md"), [])
+
+    def test_unicode_name_full_stop(self):
+        self.assertEqual(lint("U+002E is FULL STOP in the table.\n", "md"), [])
+        self.assertIn(
+            "signposting-emphatic", rule_ids("That is the rule. Full stop.\n", "md")
+        )
+
+    def test_not_just_any(self):
+        self.assertEqual(lint("We do not just any reads, but writes.\n", "md"), [])
+
+    def test_mid_sentence_exclamations(self):
+        for text in (
+            "You can of course! use it.\n",
+            "Don't hesitate to file a bug.\n",
+            "quite frankly, it works\n",
+            "to be honest about limits\n",
+        ):
+            with self.subTest(text):
+                self.assertEqual(lint(text, "md"), [])
+
+    def test_sentence_start_opener(self):
+        self.assertEqual(
+            rule_ids("Certainly! Here is the draft.\n", "md"), ["chatbot-opener"]
+        )
+
+    def test_despite_limitations(self):
+        self.assertEqual(
+            lint("Despite these limitations, the queue is fast.\n", "md"), []
+        )
+
+    def test_key_insight_as_noun(self):
+        self.assertEqual(
+            lint("This gives the key insight into scheduling.\n", "md"), []
+        )
+
+
+class ScannerBugs(unittest.TestCase):
+    def test_match_text_drops_comment_markers(self):
+        for text, kind in (
+            ("/// It is worth\n/// noting that x.\nfn f() {}\n", "rs"),
+            ("/**\n * it is worth\n * noting that x\n */\n", "java"),
+            ("# it is worth\n# noting that x\n", "nix"),
+        ):
+            with self.subTest(kind):
+                hits = ai_tells_lint.lint(text, kind, RULES)
+                self.assertEqual([h.text.lower() for h in hits], ["it is worth noting"])
+
+    def test_indented_code_block(self):
+        text = (
+            "Run this:\n\n    # it is important to note\n    pivotal --now\n\npivotal\n"
+        )
+        self.assertEqual(lint(text, "md"), [(6, 1, "ai-vocabulary")])
+
+    def test_indented_list_paragraph_is_prose(self):
+        text = "- item\n\n    a pivotal step\n"
+        self.assertEqual(rule_ids(text, "md"), ["ai-vocabulary"])
+
+    def test_fence_in_list_item(self):
+        text = "1. Install it:\n\n    ```sh\n    x=1\n\n    # pivotal\n    ```\n\npivotal\n"
+        self.assertEqual(lint(text, "md"), [(9, 1, "ai-vocabulary")])
+
+    def test_shell_command_substitution_in_string(self):
+        text = 'echo "$(printf "%s" "a # pivotal")" # pivotal\n'
+        self.assertEqual(lint(text, "sh"), [(1, 39, "ai-vocabulary")])
+
+    def test_js_regex_after_keyword(self):
+        text = "function f(s) { return /[//] pivotal x/.test(s); } // pivotal\n"
+        self.assertEqual(lint(text, "js"), [(1, 55, "ai-vocabulary")])
+
+    def test_js_division_after_identifier(self):
+        text = "const d = total / count; // a pivotal step\n"
+        self.assertEqual(rule_ids(text, "js"), ["ai-vocabulary"])
+
+
 class Config(unittest.TestCase):
     TEXT = "a pivotal step \u2014 we delve into it\n"
 
@@ -646,6 +727,14 @@ class Cli(unittest.TestCase):
         self.assertEqual(
             [line.split(":")[0] for line in out.splitlines()], [str(root / "b.md")]
         )
+
+    def test_python_declared_encoding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.py"
+            path.write_bytes(b"# -*- coding: latin-1 -*-\n# caf\xe9: a pivotal step\n")
+            code, out, _ = self.run_main(path)
+        self.assertEqual(code, 1)
+        self.assertIn(": ai-vocabulary: ", out)
 
     def test_suffix_aliases(self):
         with tempfile.TemporaryDirectory() as tmp:
