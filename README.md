@@ -185,7 +185,3 @@ These sources documented the patterns the rules look for. Each rule's `source` f
 - **[A Hacker News comment by tyre](https://news.ycombinator.com/item?id=49413456)** on voice in agent instructions, in the thread "My agent.md to improve LLM-assisted code quality": words and phrases for eight rules, which cite it as "HN tyre".
 
 Related, not a rule source: [proselint](https://github.com/amperser/proselint) (BSD-3-Clause) and its Vale port [vale-cli/proselint](https://github.com/vale-cli/proselint) check general prose quality.
-
-## License
-
-MIT, see [LICENSE](LICENSE).
