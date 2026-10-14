@@ -1,0 +1,9 @@
+# --wait
+a = "serves as the entry point # not a comment — pivotal"
+b = 'I hope this helps # not a comment'
+c = """
+# pivotal — I hope this helps
+"""
+d = '''
+# pivotal
+'''

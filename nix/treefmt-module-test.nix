@@ -39,6 +39,22 @@ assert lib.assertMsg (
     "*.nix"
     "*.sh"
     "*.py"
+    "*.go"
+    "*.rs"
+    "*.c"
+    "*.h"
+    "*.java"
+    "*.js"
+    "*.jsx"
+    "*.mjs"
+    "*.cjs"
+    "*.ts"
+    "*.tsx"
+    "*.mts"
+    "*.cts"
+    "*.yaml"
+    "*.yml"
+    "*.toml"
   ]
 ) "default includes";
 assert lib.assertMsg (plain.excludes == [ ]) "default excludes";

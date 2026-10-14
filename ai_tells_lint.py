@@ -1,4 +1,4 @@
-"""Flag LLM writing tells in markdown prose and in nix, shell and python comments.
+"""Flag LLM writing tells in markdown prose and in code comments.
 
 usage: ai-tells-lint [--config PATH] FILE...
 
@@ -10,6 +10,7 @@ nearest parent that has one.
 
 import argparse
 import bisect
+import functools
 import io
 import re
 import sys
@@ -48,6 +49,11 @@ MD_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 MD_HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 SH_HEREDOC = re.compile(r"<<(-?)[ \t]*\\?(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
 SH_WORD_START = " \t\n;|&()<>"
+C_COMMENT_STAR = re.compile(r"\n[ \t]*(\*+)(?!/)")
+# a slash after one of these starts a js regex literal, not a division
+JS_REGEX_AFTER = set("(,=:[!&|?{};+-*%<>~^")
+RS_RAW_STRING = re.compile(r'b?r(#*)"')
+YAML_BLOCK_HEADER = re.compile(r"[|>][-+0-9]*[ \t]*(#[^\n]*)?(?=\n|\Z)")
 
 
 class ScanError(Exception):
@@ -440,7 +446,239 @@ def scan_py(text):
     return region
 
 
-SCANNERS = {"md": scan_md, "nix": scan_nix, "sh": scan_sh, "py": scan_py}
+def _c_line_comment(text, region, i):
+    end = text.find("\n", i)
+    end = len(text) if end < 0 else end
+    # doc comment markers: ///, //!
+    j = i + 2
+    while j < end and text[j] in "/!":
+        j += 1
+    region.blank(i, j)
+    region.keep(j, end)
+    return end
+
+
+def _c_block_comment(text, region, i, nest):
+    n = len(text)
+    depth = 1
+    j = i + 2
+    while j < n and depth:
+        if nest and text.startswith("/*", j):
+            depth += 1
+            j += 2
+        elif text.startswith("*/", j):
+            depth -= 1
+            j += 2
+        else:
+            j += 1
+    end = j - 2 if depth == 0 else n
+    region.blank(i, i + 2)
+    region.keep(i + 2, end)
+    region.blank(end, j)
+    # leading * of doc comment lines would split phrases across lines
+    for m in C_COMMENT_STAR.finditer(text, i + 2, end):
+        region.blank(m.start(1), m.end(1))
+    return j
+
+
+def _c_char(text, i):
+    """Skip a char literal; a lone quote (a rust lifetime) is skipped alone."""
+    if text.startswith("\\", i + 1):
+        close = text.find("'", i + 3)
+        return len(text) if close < 0 else close + 1
+    if text.startswith("'", i + 2):
+        return i + 3
+    return i + 1
+
+
+def _js_regex(text, i):
+    """Skip a regex literal; returns i + 1 when the slash is not one."""
+    in_class = False
+    j = i + 1
+    while j < len(text) and text[j] != "\n":
+        c = text[j]
+        if c == "\\":
+            j += 2
+            continue
+        if in_class:
+            in_class = c != "]"
+        elif c == "[":
+            in_class = True
+        elif c == "/":
+            return j + 1
+        j += 1
+    return i + 1
+
+
+def scan_c(text, lang):
+    """Comments of C-like languages: go, rs, c, java and js (also ts, jsx, tsx)."""
+    region = Region(text, keep_all=False)
+    n = len(text)
+    # each frame is "tmpl" (js template literal) or a code frame holding its
+    # open-brace depth
+    stack = [0]
+    last = ""
+    i = 0
+    while i < n:
+        c = text[i]
+        if stack[-1] == "tmpl":
+            if c == "\\":
+                i += 2
+            elif c == "`":
+                stack.pop()
+                last = "`"
+                i += 1
+            elif text.startswith("${", i):
+                stack.append(0)
+                i += 2
+            else:
+                i += 1
+            continue
+        if text.startswith("//", i):
+            i = _c_line_comment(text, region, i)
+        elif text.startswith("/*", i):
+            i = _c_block_comment(text, region, i, nest=lang == "rs")
+        elif c == "/" and lang == "js" and (not last or last in JS_REGEX_AFTER):
+            i = _js_regex(text, i)
+            last = "/"
+        elif lang == "java" and text.startswith('"""', i):
+            end = text.find('"""', i + 3)
+            i = n if end < 0 else end + 3
+            last = '"'
+        elif c == '"':
+            i = _skip_quoted(text, i, '"')
+            last = '"'
+        elif c == "'":
+            i = _skip_quoted(text, i, "'") if lang == "js" else _c_char(text, i)
+            last = "'"
+        elif c == "`" and lang == "js":
+            stack.append("tmpl")
+            i += 1
+        elif c == "`" and lang == "go":
+            end = text.find("`", i + 1)
+            i = n if end < 0 else end + 1
+            last = "`"
+        elif (
+            lang == "rs"
+            and (m := RS_RAW_STRING.match(text, i))
+            and not (i and (text[i - 1].isalnum() or text[i - 1] == "_"))
+        ):
+            close = '"' + m.group(1)
+            end = text.find(close, m.end())
+            i = n if end < 0 else end + len(close)
+            last = '"'
+        else:
+            if c == "{":
+                stack[-1] += 1
+            elif c == "}":
+                if stack[-1] == 0 and len(stack) > 1:
+                    stack.pop()
+                else:
+                    stack[-1] -= 1
+            if not c.isspace():
+                last = c
+            i += 1
+    return region
+
+
+def _yaml_scalar_start(text, i):
+    before = text[text.rfind("\n", 0, i) + 1 : i].rstrip()
+    return not before or before[-1] in ":-[{,?"
+
+
+def scan_yaml(text):
+    region = Region(text, keep_all=False)
+    n = len(text)
+    i = 0
+    while i < n:
+        c = text[i]
+        if c == "#" and (i == 0 or text[i - 1].isspace()):
+            i = _line_comment(text, region, i)
+        elif c == "'" and _yaml_scalar_start(text, i):
+            # '' is an escaped quote inside a single-quoted scalar
+            j = i + 1
+            while j < n and not (text[j] == "'" and not text.startswith("''", j)):
+                j += 2 if text.startswith("''", j) else 1
+            i = j + 1
+        elif c == '"' and _yaml_scalar_start(text, i):
+            i = _skip_quoted(text, i, '"')
+        elif (
+            c in "|>"
+            and _yaml_scalar_start(text, i)
+            and (m := YAML_BLOCK_HEADER.match(text, i))
+        ):
+            if m.group(1):
+                _line_comment(text, region, m.start(1))
+            line_start = text.rfind("\n", 0, i) + 1
+            indent = len(text[line_start:i]) - len(text[line_start:i].lstrip(" "))
+            # the block's content is every following line indented deeper, and
+            # blank lines between
+            j = m.end()
+            while j < n:
+                end = text.find("\n", j + 1)
+                end = n if end < 0 else end
+                line = text[j + 1 : end]
+                if line.strip() and len(line) - len(line.lstrip(" ")) <= indent:
+                    break
+                j = end
+            i = j
+        else:
+            i += 1
+    return region
+
+
+def scan_toml(text):
+    region = Region(text, keep_all=False)
+    n = len(text)
+    i = 0
+    while i < n:
+        c = text[i]
+        if text.startswith('"""', i):
+            j = i + 3
+            while j < n and not text.startswith('"""', j):
+                j += 2 if text[j] == "\\" else 1
+            i = j + 3
+        elif text.startswith("'''", i):
+            end = text.find("'''", i + 3)
+            i = n if end < 0 else end + 3
+        elif c == '"':
+            i = _skip_quoted(text, i, '"')
+        elif c == "'":
+            end = text.find("'", i + 1)
+            i = n if end < 0 else end + 1
+        elif c == "#":
+            i = _line_comment(text, region, i)
+        else:
+            i += 1
+    return region
+
+
+SCANNERS = {
+    "md": scan_md,
+    "nix": scan_nix,
+    "sh": scan_sh,
+    "py": scan_py,
+    "go": functools.partial(scan_c, lang="go"),
+    "rs": functools.partial(scan_c, lang="rs"),
+    "c": functools.partial(scan_c, lang="c"),
+    "java": functools.partial(scan_c, lang="java"),
+    "js": functools.partial(scan_c, lang="js"),
+    "yaml": scan_yaml,
+    "toml": scan_toml,
+}
+
+SUFFIXES = {
+    **{kind: kind for kind in SCANNERS},
+    "h": "c",
+    "jsx": "js",
+    "mjs": "js",
+    "cjs": "js",
+    "ts": "js",
+    "tsx": "js",
+    "mts": "js",
+    "cts": "js",
+    "yml": "yaml",
+}
 
 
 def _mask_inline(segment):
@@ -485,8 +723,8 @@ def lint(text, kind, rules):
 def main(argv):
     parser = argparse.ArgumentParser(
         prog="ai-tells-lint",
-        description="Flag LLM writing tells in markdown prose and in nix, shell"
-        " and python comments.",
+        description="Flag LLM writing tells in markdown prose and in code and"
+        " config comments.",
     )
     parser.add_argument(
         "--config",
@@ -509,8 +747,8 @@ def main(argv):
 
     status = 0
     for name in args.files:
-        kind = Path(name).suffix[1:]
-        if kind not in SCANNERS:
+        kind = SUFFIXES.get(Path(name).suffix[1:])
+        if kind is None:
             print(f"{name}: unsupported file type", file=sys.stderr)
             status = 2
             continue

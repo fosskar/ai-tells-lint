@@ -29,6 +29,22 @@ in
         "*.nix"
         "*.sh"
         "*.py"
+        "*.go"
+        "*.rs"
+        "*.c"
+        "*.h"
+        "*.java"
+        "*.js"
+        "*.jsx"
+        "*.mjs"
+        "*.cjs"
+        "*.ts"
+        "*.tsx"
+        "*.mts"
+        "*.cts"
+        "*.yaml"
+        "*.yml"
+        "*.toml"
       ];
       description = "Files to lint. Supports globbing.";
     };

@@ -3,6 +3,10 @@
 
   projectRootFile = "flake.nix";
 
+  # test inputs: tells on purpose, and reformatting would move the expected
+  # columns
+  settings.global.excludes = [ "fixtures/*" ];
+
   programs = {
     nixfmt.enable = true;
     deadnix.enable = true;
@@ -16,11 +20,8 @@
     prettier.enable = true;
     ai-tells-lint = {
       enable = true;
-      # both contain tells on purpose
-      excludes = [
-        "fixtures/*"
-        "rules.toml"
-      ];
+      # contains tells on purpose
+      excludes = [ "rules.toml" ];
     };
   };
 

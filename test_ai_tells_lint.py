@@ -32,6 +32,49 @@ EXPECTED_HITS = {
         (3, "ai-vocabulary", "pivotal"),
         (3, "em-dash", "—"),
     ],
+    "hits.go": [
+        (1, "copula-dodge", "serves as the"),
+        (4, "ai-vocabulary", "pivotal"),
+        (5, "em-dash", "—"),
+        (7, "negative-parallelism", "not just"),
+    ],
+    "hits.js": [
+        (1, "copula-dodge", "serves as the"),
+        (2, "ai-vocabulary", "pivotal"),
+        (2, "em-dash", "—"),
+        (4, "negative-parallelism", "not just"),
+        (7, "chatbot-phrase", "I hope"),
+    ],
+    "hits.rs": [
+        (1, "copula-dodge", "serves as the"),
+        (3, "ai-vocabulary", "pivotal"),
+        (3, "em-dash", "—"),
+        (5, "negative-parallelism", "not just"),
+    ],
+    "hits.c": [
+        (1, "copula-dodge", "serves as the"),
+        (4, "ai-vocabulary", "pivotal"),
+        (4, "em-dash", "—"),
+        (5, "negative-parallelism", "not just"),
+    ],
+    "hits.java": [
+        (1, "copula-dodge", "serves as the"),
+        (5, "ai-vocabulary", "pivotal"),
+        (5, "em-dash", "—"),
+        (6, "negative-parallelism", "not just"),
+    ],
+    "hits.yaml": [
+        (1, "copula-dodge", "serves as the"),
+        (2, "ai-vocabulary", "pivotal"),
+        (2, "em-dash", "—"),
+        (4, "negative-parallelism", "not just"),
+    ],
+    "hits.toml": [
+        (1, "copula-dodge", "serves as the"),
+        (2, "ai-vocabulary", "pivotal"),
+        (2, "em-dash", "—"),
+        (3, "negative-parallelism", "not just"),
+    ],
     "hits.py": [
         (1, "copula-dodge", "serves as the"),
         (2, "ai-vocabulary", "pivotal"),
@@ -206,6 +249,120 @@ def configured(config, text, kind="md"):
     return [h.rule for h in ai_tells_lint.lint(text, kind, rules)]
 
 
+class Go(unittest.TestCase):
+    def test_block_comment(self):
+        text = "var a = /* the pivotal value */ 1\n"
+        self.assertEqual(lint(text, "go"), [(1, 16, "ai-vocabulary")])
+
+    def test_raw_string(self):
+        self.assertEqual(lint("var a = `\n// pivotal\n`\n", "go"), [])
+
+    def test_rune_quote_does_not_open_string(self):
+        text = "var c = '\"' // a pivotal step\n"
+        self.assertEqual(rule_ids(text, "go"), ["ai-vocabulary"])
+
+
+class JavaScript(unittest.TestCase):
+    def test_doc_comment_stars_do_not_break_phrases(self):
+        text = "/**\n * it serves\n * as the gate\n */\nconst a = 1;\n"
+        self.assertEqual(rule_ids(text, "js"), ["copula-dodge"])
+
+    def test_template_literal(self):
+        text = "const a = `// pivotal ${b /* I hope this helps */} pivotal`;\n"
+        self.assertEqual(rule_ids(text, "js"), ["chatbot-phrase"])
+
+    def test_nested_template_literal(self):
+        text = "const a = `${`// pivotal ${c}`}`; // pivotal\n"
+        self.assertEqual(lint(text, "js"), [(1, 38, "ai-vocabulary")])
+
+    def test_regex_literal(self):
+        text = 'const r = /\\/\\/ pivotal "[/]/g;\n// pivotal\n'
+        self.assertEqual(lint(text, "js"), [(2, 4, "ai-vocabulary")])
+
+    def test_division_is_not_regex(self):
+        text = "const d = a / 2; // a pivotal step\n"
+        self.assertEqual(rule_ids(text, "js"), ["ai-vocabulary"])
+
+    def test_single_quoted_string(self):
+        self.assertEqual(lint("const a = '// pivotal';\n", "js"), [])
+
+
+class Rust(unittest.TestCase):
+    def test_lifetimes_are_not_char_literals(self):
+        text = "fn f<'a>(x: &'a str) -> &'a str { x } // pivotal\n"
+        self.assertEqual(rule_ids(text, "rs"), ["ai-vocabulary"])
+
+    def test_char_and_byte_literals(self):
+        text = "let a = '\"'; let b = b'\\''; // pivotal\n"
+        self.assertEqual(rule_ids(text, "rs"), ["ai-vocabulary"])
+
+    def test_raw_string(self):
+        self.assertEqual(lint('let a = r#"// pivotal "x" pivotal"#;\n', "rs"), [])
+
+    def test_doc_comments(self):
+        text = "//! the pivotal crate\n/// the pivotal fn\nfn f() {}\n"
+        self.assertEqual(
+            lint(text, "rs"), [(1, 9, "ai-vocabulary"), (2, 9, "ai-vocabulary")]
+        )
+
+    def test_block_comments_nest(self):
+        text = "/* a /* b */ pivotal */\nfn f() {}\n"
+        self.assertEqual(rule_ids(text, "rs"), ["ai-vocabulary"])
+
+
+class C(unittest.TestCase):
+    def test_block_comments_do_not_nest(self):
+        self.assertEqual(lint("/* a /* b */ pivotal */\n", "c"), [])
+
+    def test_escaped_char_literal(self):
+        text = "char c = '\\''; // a pivotal step\n"
+        self.assertEqual(rule_ids(text, "c"), ["ai-vocabulary"])
+
+
+class Java(unittest.TestCase):
+    def test_text_block(self):
+        text = 'String s = """\n  // pivotal "quoted"\n  """; // pivotal\n'
+        self.assertEqual(lint(text, "java"), [(3, 11, "ai-vocabulary")])
+
+
+class Yaml(unittest.TestCase):
+    def test_comment_needs_preceding_space(self):
+        text = "url: https://example.com/#pivotal\na: b # pivotal\n"
+        self.assertEqual(lint(text, "yaml"), [(2, 8, "ai-vocabulary")])
+
+    def test_quoted_scalars(self):
+        text = "a: \"x # pivotal\"\nb: 'it''s # pivotal'\n- 'x' # pivotal\n"
+        self.assertEqual(lint(text, "yaml"), [(3, 9, "ai-vocabulary")])
+
+    def test_apostrophe_in_plain_scalar(self):
+        self.assertEqual(rule_ids("a: don't # pivotal\n", "yaml"), ["ai-vocabulary"])
+
+    def test_block_scalar(self):
+        text = "steps:\n  - run: |\n      # pivotal\n      echo\n  # pivotal\n"
+        self.assertEqual(lint(text, "yaml"), [(5, 5, "ai-vocabulary")])
+
+    def test_block_scalar_header_comment(self):
+        text = "a: >- # pivotal\n  # not a comment, pivotal\n"
+        self.assertEqual(lint(text, "yaml"), [(1, 9, "ai-vocabulary")])
+
+
+class Toml(unittest.TestCase):
+    def test_strings(self):
+        text = "a = \"x # pivotal\" # pivotal\nb = 'y # pivotal'\n"
+        self.assertEqual(lint(text, "toml"), [(1, 21, "ai-vocabulary")])
+
+    def test_multiline_strings(self):
+        text = "a = \"\"\"\n# pivotal\n\"\"\"\nb = '''\n# pivotal\n'''\n"
+        self.assertEqual(lint(text, "toml"), [])
+
+
+class Suffixes(unittest.TestCase):
+    def test_every_suffix_has_a_scanner(self):
+        for suffix, kind in ai_tells_lint.SUFFIXES.items():
+            with self.subTest(suffix):
+                self.assertIn(kind, ai_tells_lint.SCANNERS)
+
+
 class Config(unittest.TestCase):
     TEXT = "a pivotal step \u2014 we delve into it\n"
 
@@ -359,8 +516,25 @@ class Cli(unittest.TestCase):
             first, f"{path}:2:{col}: copula-dodge: {message}: serves as the"
         )
 
+    def test_suffix_aliases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, text in (
+                ("a.tsx", "// pivotal\n"),
+                ("a.yml", "# pivotal\n"),
+                ("a.h", "/* pivotal */\n"),
+            ):
+                with self.subTest(name):
+                    path = Path(tmp) / name
+                    path.write_text(text)
+                    code, out, _ = self.run_main(path)
+                    self.assertEqual(code, 1)
+                    self.assertIn(": ai-vocabulary: ", out)
+
     def test_unsupported_suffix(self):
-        code, out, err = self.run_main(HERE / "rules.toml")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "notes.txt"
+            path.write_text("pivotal\n")
+            code, out, err = self.run_main(path)
         self.assertEqual((code, out), (2, ""))
         self.assertIn("unsupported file type", err)
 

@@ -1,0 +1,9 @@
+# --wait
+name: "serves as the entry point # not a comment — pivotal"
+desc: 'it''s pivotal # still a string'
+plain: don't flag this # see https://example.com/pivotal
+url: https://example.com/#pivotal
+run: |
+  # I hope this helps — pivotal
+  echo done
+next: value

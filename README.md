@@ -3,7 +3,7 @@
 
 # ai-tells-lint
 
-**A report-only linter for LLM writing tells in markdown prose and in nix, shell and python comments.**
+**A report-only linter for LLM writing tells in markdown prose and in code and config comments.**
 
 [![treefmt-nix module](https://img.shields.io/badge/treefmt--nix-module-5277C3?style=flat-square&logo=nixos&logoColor=white)](#with-treefmt-nix)
 [![Python](https://img.shields.io/badge/Python-standard_library_only-3776AB?style=flat-square&logo=python&logoColor=white)](./ai_tells_lint.py)
@@ -33,12 +33,18 @@ Each hit is one line: `path:line:col: rule-id: message: match`. The exit status 
 
 The file suffix selects what is scanned:
 
-| Suffix | Scanned text                                                                                                      |
-| ------ | ----------------------------------------------------------------------------------------------------------------- |
-| `.md`  | Prose. Fenced code, HTML comments and tags, inline code, URLs, link targets and double-quoted text are skipped.   |
-| `.nix` | `#` and `/* */` comments, including comments inside `${ }` interpolations. Strings are skipped.                   |
-| `.sh`  | `#` comments. Strings, parameter expansions such as `${a#b}`, heredoc bodies and the shebang line are skipped.    |
-| `.py`  | `#` comments, found with the python tokenizer. Strings and docstrings are skipped, and so is a shebang on line 1. |
+| Suffix                                                       | Scanned text                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.md`                                                        | Prose. Fenced code, HTML comments and tags, inline code, URLs, link targets and double-quoted text are skipped.                                                                                                                                    |
+| `.nix`                                                       | `#` and `/* */` comments, including comments inside `${ }` interpolations. Strings are skipped.                                                                                                                                                    |
+| `.sh`                                                        | `#` comments. Strings, parameter expansions such as `${a#b}`, heredoc bodies and the shebang line are skipped.                                                                                                                                     |
+| `.py`                                                        | `#` comments, found with the python tokenizer. Strings and docstrings are skipped, and so is a shebang on line 1.                                                                                                                                  |
+| `.go`                                                        | `//` and `/* */` comments. Strings, raw strings in backticks and rune literals are skipped.                                                                                                                                                        |
+| `.rs`                                                        | `//`, `///`, `//!` and nested `/* */` comments. Strings, raw strings such as `r#"..."#`, char literals and lifetimes are handled.                                                                                                                  |
+| `.c`, `.h`, `.java`                                          | `//` and `/* */` comments. Strings and char literals are skipped, and so are Java text blocks.                                                                                                                                                     |
+| `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts` | `//` and `/* */` comments, including comments inside template literal `${ }` expressions. Strings, template literals and regex literals are skipped. Text between JSX tags is not scanned, and an apostrophe in it can hide the comments after it. |
+| `.yaml`, `.yml`                                              | `#` comments that start a line or follow whitespace. Quoted scalars and block scalars (`\|` and `>`) are skipped.                                                                                                                                  |
+| `.toml`                                                      | `#` comments. All four string forms are skipped.                                                                                                                                                                                                   |
 
 Words and phrases match only as whole words, case-insensitive, and phrases match across line breaks. A rule with `raw = true` also looks inside code, quotes and URLs, which is how `markup-artefact` finds tracking parameters in links.
 
@@ -89,13 +95,13 @@ treefmt-nix.lib.evalModule pkgs {
 
 `nix fmt` then runs ai-tells-lint with your other formatters and fails on a hit, and so does the treefmt flake check where you expose one (`treefmt-nix.flakeModule` does by default).
 
-| Option                            | Default                            | Description                                                                                                         |
-| --------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `programs.ai-tells-lint.enable`   | `false`                            | Run ai-tells-lint as a treefmt formatter.                                                                           |
-| `programs.ai-tells-lint.package`  | built with your `pkgs`             | The ai-tells-lint package.                                                                                          |
-| `programs.ai-tells-lint.includes` | `[ "*.md" "*.nix" "*.sh" "*.py" ]` | Files to lint.                                                                                                      |
-| `programs.ai-tells-lint.excludes` | `[ ]`                              | Files not to lint. Takes precedence over `includes`.                                                                |
-| `programs.ai-tells-lint.settings` | `{ }`                              | The [configuration](#configuration), passed with `--config`. When empty, ai-tells-lint reads `.ai-tells-lint.toml`. |
+| Option                            | Default                         | Description                                                                                                         |
+| --------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `programs.ai-tells-lint.enable`   | `false`                         | Run ai-tells-lint as a treefmt formatter.                                                                           |
+| `programs.ai-tells-lint.package`  | built with your `pkgs`          | The ai-tells-lint package.                                                                                          |
+| `programs.ai-tells-lint.includes` | every suffix in the table above | Files to lint.                                                                                                      |
+| `programs.ai-tells-lint.excludes` | `[ ]`                           | Files not to lint. Takes precedence over `includes`.                                                                |
+| `programs.ai-tells-lint.settings` | `{ }`                           | The [configuration](#configuration), passed with `--config`. When empty, ai-tells-lint reads `.ai-tells-lint.toml`. |
 
 ai-tells-lint has no file include or exclude settings of its own; treefmt's `includes` and `excludes` decide which files it sees.
 

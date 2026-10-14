@@ -54,18 +54,19 @@ stdenvNoCC.mkDerivation (finalAttrs: {
         ''
           cd ${testSrc}/fixtures
 
-          ai-tells-lint clean.md clean.nix clean.sh clean.py
+          ai-tells-lint clean.*
 
           status=0
-          ai-tells-lint hits.md hits.nix hits.sh hits.py >"$NIX_BUILD_TOP/hits.out" || status=$?
+          ai-tells-lint hits.* >"$NIX_BUILD_TOP/hits.out" || status=$?
           [ "$status" -eq 1 ]
-          if grep -Ev '^hits\.(md|nix|sh|py):[0-9]+:[0-9]+: [a-z-]+: .+: .+$' "$NIX_BUILD_TOP/hits.out"; then
+          if grep -Ev '^hits\.[a-z]+:[0-9]+:[0-9]+: [a-z-]+: .+: .+$' "$NIX_BUILD_TOP/hits.out"; then
             exit 1
           fi
-          [ "$(wc -l <"$NIX_BUILD_TOP/hits.out")" -eq 18 ]
+          [ "$(wc -l <"$NIX_BUILD_TOP/hits.out")" -eq 47 ]
 
           status=0
-          ai-tells-lint ${finalAttrs.finalPackage}/share/ai-tells-lint/rules.toml || status=$?
+          echo pivotal >"$NIX_BUILD_TOP/notes.txt"
+          ai-tells-lint "$NIX_BUILD_TOP/notes.txt" || status=$?
           [ "$status" -eq 2 ]
 
           touch $out
@@ -73,7 +74,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   };
 
   meta = {
-    description = "flag LLM writing tells in markdown prose and nix, shell and python comments";
+    description = "flag LLM writing tells in markdown prose and code and config comments";
     mainProgram = "ai-tells-lint";
     license = lib.licenses.mit;
     platforms = lib.platforms.all;

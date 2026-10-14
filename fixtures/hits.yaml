@@ -1,0 +1,6 @@
+# this file serves as the entry point
+name: demo # a pivotal step — runs first
+steps:
+  # it is not just a cache,
+  # but a build farm
+  - run: echo hi
