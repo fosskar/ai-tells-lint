@@ -123,6 +123,15 @@ ai-vocabulary = ["synergy"]
 [allow]
 ai-vocabulary = ["leverage", "genuinely"]
 
+# report a rule only where a paragraph or comment block has this many hits
+[min-hits]
+ai-vocabulary = 3
+
+# skip rules for files matching a glob, relative to the working directory
+[per-file-ignores]
+"docs/finance/*" = ["ai-vocabulary"]
+"CHANGELOG.md" = ["em-dash"]
+
 # add a rule
 [[rule]]
 id = "ticket-id"
@@ -131,13 +140,15 @@ regex = ['\bJIRA-\d+']
 examples = ["see JIRA-12"]
 ```
 
-| Key           | Value                | Description                                                                                                                                            |
-| ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `select`      | list of rule ids     | Run only these rules. Default: all rules.                                                                                                              |
-| `ignore`      | list of rule ids     | Do not run these rules.                                                                                                                                |
-| `extend.<id>` | list of strings      | Add words or phrases to a `words` or `phrases` rule.                                                                                                   |
-| `allow.<id>`  | list of strings      | Remove words or phrases from a `words` or `phrases` rule. Matching is case-insensitive, and each entry must be in the rule. Removing all turns it off. |
-| `[[rule]]`    | array of rule tables | Add rules, in the same schema as [`rules.toml`](./rules.toml).                                                                                         |
+| Key                       | Value                | Description                                                                                                                                                                                             |
+| ------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `select`                  | list of rule ids     | Run only these rules. Default: all rules.                                                                                                                                                               |
+| `ignore`                  | list of rule ids     | Do not run these rules.                                                                                                                                                                                 |
+| `extend.<id>`             | list of strings      | Add words or phrases to a `words` or `phrases` rule.                                                                                                                                                    |
+| `allow.<id>`              | list of strings      | Remove words or phrases from a `words` or `phrases` rule. Matching is case-insensitive, and each entry must be in the rule. Removing all turns it off.                                                  |
+| `min-hits.<id>`           | integer              | Report the rule only in paragraphs or comment blocks where it hits at least this often. Overrides the rule's own `min-hits`.                                                                            |
+| `per-file-ignores.<glob>` | list of rule ids     | Do not run these rules on files matching the glob. `*` also matches `/`. Paths are matched as given on the command line and relative to the working directory, which is the project root under treefmt. |
+| `[[rule]]`                | array of rule tables | Add rules, in the same schema as [`rules.toml`](./rules.toml).                                                                                                                                          |
 
 A rule table has these keys:
 
@@ -147,9 +158,31 @@ A rule table has these keys:
 | `message`                   | Printed with each hit.                                                                            |
 | `words`, `phrases`, `regex` | Exactly one of them: a list of words, of phrases, or of python regular expressions (ignore case). |
 | `raw`                       | `true` to also match inside code, quotes and URLs. Default `false`.                               |
+| `min-hits`                  | Report only where a paragraph or comment block has at least this many hits. Default `1`.          |
 | `examples`, `source`        | Optional. Example sentences and where the rule comes from, for documentation.                     |
 
-The ids in `select`, `ignore`, `extend` and `allow` can name built-in and added rules. An unknown key or rule id, a wrong type, or a regex that does not compile exits 2 with a message that names the key or rule.
+The ids in `select`, `ignore`, `extend`, `allow`, `min-hits` and `per-file-ignores` can name built-in and added rules. An unknown key or rule id, a wrong type, or a regex that does not compile exits 2 with a message that names the key or rule.
+
+### Suppressing a hit
+
+To keep a deliberate use, put a marker in a comment. In markdown, use an HTML comment; markers in prose, inline code or fenced code have no effect.
+
+| Marker                                   | Effect                                                       |
+| ---------------------------------------- | ------------------------------------------------------------ |
+| `ai-tells-lint: allow em-dash`           | Suppress `em-dash` on this line.                             |
+| `ai-tells-lint: allow-next-line em-dash` | Suppress `em-dash` on the next line.                         |
+| `ai-tells-lint: off`                     | Suppress all rules from this line until `ai-tells-lint: on`. |
+| `ai-tells-lint: on`                      | End an `off` region.                                         |
+
+`allow` and `allow-next-line` take a comma-separated list of rule ids, or none for all rules. A hit that spans lines counts on its first line. For example:
+
+```markdown
+Firms leverage debt to fund buybacks. <!-- ai-tells-lint: allow ai-vocabulary -->
+```
+
+```python
+x = cache_size  # the pivotal value, from the spec  ai-tells-lint: allow ai-vocabulary
+```
 
 ## Rules
 

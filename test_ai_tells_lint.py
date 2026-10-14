@@ -363,6 +363,119 @@ class Suffixes(unittest.TestCase):
                 self.assertIn(kind, ai_tells_lint.SCANNERS)
 
 
+class Suppression(unittest.TestCase):
+    def test_allow_on_same_line(self):
+        text = "a pivotal step <!-- ai-tells-lint: allow ai-vocabulary -->\n"
+        self.assertEqual(lint(text, "md"), [])
+
+    def test_allow_names_other_rule(self):
+        text = "a pivotal step <!-- ai-tells-lint: allow em-dash -->\n"
+        self.assertEqual(rule_ids(text, "md"), ["ai-vocabulary"])
+
+    def test_allow_several_rules(self):
+        text = "a pivotal \u2014 step # ai-tells-lint: allow em-dash, ai-vocabulary\n"
+        self.assertEqual(lint("x = 1 # " + text, "nix"), [])
+
+    def test_bare_allow_covers_all_rules(self):
+        self.assertEqual(
+            lint("x = 1  # a pivotal \u2014 step ai-tells-lint: allow\n", "py"), []
+        )
+
+    def test_allow_next_line(self):
+        text = "<!-- ai-tells-lint: allow-next-line -->\npivotal\npivotal\n"
+        self.assertEqual(lint(text, "md"), [(3, 1, "ai-vocabulary")])
+
+    def test_allow_next_line_in_comment(self):
+        text = "# ai-tells-lint: allow-next-line ai-vocabulary\n# pivotal\n# pivotal\n"
+        self.assertEqual(lint(text, "sh"), [(3, 3, "ai-vocabulary")])
+
+    def test_off_and_on(self):
+        text = "pivotal\n<!-- ai-tells-lint: off -->\npivotal\n\npivotal\n<!-- ai-tells-lint: on -->\npivotal\n"
+        self.assertEqual(
+            lint(text, "md"), [(1, 1, "ai-vocabulary"), (7, 1, "ai-vocabulary")]
+        )
+
+    def test_multiline_hit_uses_start_line(self):
+        text = "it serves <!-- ai-tells-lint: allow -->\nas the gate\n"
+        self.assertEqual(lint(text, "md"), [])
+
+    def test_marker_outside_comments_is_ignored(self):
+        for text, kind in (
+            ("`ai-tells-lint: off`\n\npivotal\n", "md"),
+            ("```\n<!-- ai-tells-lint: off -->\n```\npivotal\n", "md"),
+            ('x = "ai-tells-lint: off"  # pivotal\n', "py"),
+        ):
+            with self.subTest(text):
+                self.assertEqual(rule_ids(text, kind), ["ai-vocabulary"])
+
+
+class MinHits(unittest.TestCase):
+    def test_rule_key(self):
+        rules = ai_tells_lint.configure(
+            RULES,
+            {
+                "rule": [
+                    {"id": "x", "message": "m", "words": ["foo", "bar"], "min-hits": 2}
+                ]
+            },
+        )
+        text = "foo alone\n\nfoo and bar\n"
+        got = [
+            (h.line, h.rule)
+            for h in ai_tells_lint.lint(text, "md", rules)
+            if h.rule == "x"
+        ]
+        self.assertEqual(got, [(3, "x"), (3, "x")])
+
+    def test_config_override(self):
+        config = {"min-hits": {"ai-vocabulary": 2}}
+        self.assertEqual(configured(config, "a pivotal step\n"), [])
+        self.assertEqual(
+            configured(config, "a pivotal step,\na vibrant one\n"),
+            ["ai-vocabulary", "ai-vocabulary"],
+        )
+
+    def test_comment_block_is_one_segment(self):
+        config = {"min-hits": {"ai-vocabulary": 2}}
+        self.assertEqual(
+            configured(config, "# pivotal\n# vibrant\nx = 1\n", "nix"),
+            ["ai-vocabulary", "ai-vocabulary"],
+        )
+
+    def test_suppressed_hits_do_not_count(self):
+        config = {"min-hits": {"ai-vocabulary": 2}}
+        text = "pivotal <!-- ai-tells-lint: allow -->\nvibrant\n"
+        self.assertEqual(configured(config, text), [])
+
+    def test_bad_values(self):
+        for config in (
+            {"min-hits": {"ai-vocabulary": 0}},
+            {"min-hits": {"ai-vocabulary": True}},
+            {"min-hits": {"ai-vocabulary": "2"}},
+            {"min-hits": {"em-dahs": 2}},
+            {"rule": [{"id": "x", "message": "m", "words": ["a"], "min-hits": 0}]},
+        ):
+            with (
+                self.subTest(config),
+                self.assertRaises(ai_tells_lint.ConfigError),
+            ):
+                ai_tells_lint.configure(RULES, config)
+
+
+class PerFileIgnores(unittest.TestCase):
+    def test_validation(self):
+        for config in (
+            {"per-file-ignores": {"docs/*": ["em-dahs"]}},
+            {"per-file-ignores": {"docs/*": "em-dash"}},
+            {"per-file-ignores": ["docs/*"]},
+        ):
+            with (
+                self.subTest(config),
+                self.assertRaises(ai_tells_lint.ConfigError),
+            ):
+                ai_tells_lint.configure(RULES, config)
+
+
 class Config(unittest.TestCase):
     TEXT = "a pivotal step \u2014 we delve into it\n"
 
@@ -514,6 +627,24 @@ class Cli(unittest.TestCase):
         message = next(r.message for r in RULES if r.id == "copula-dodge")
         self.assertEqual(
             first, f"{path}:2:{col}: copula-dodge: {message}: serves as the"
+        )
+
+    def test_per_file_ignores(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_config(tmp, '[per-file-ignores]\n"docs/*" = ["ai-vocabulary"]\n')
+            (root / "docs").mkdir()
+            for name in ("docs/a.md", "b.md"):
+                (root / name).write_text("a pivotal step\n")
+            cwd = os.getcwd()
+            os.chdir(root)
+            try:
+                code, out, _ = self.run_main("docs/a.md", root / "b.md")
+            finally:
+                os.chdir(cwd)
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            [line.split(":")[0] for line in out.splitlines()], [str(root / "b.md")]
         )
 
     def test_suffix_aliases(self):

@@ -10,8 +10,11 @@ nearest parent that has one.
 
 import argparse
 import bisect
+import dataclasses
+import fnmatch
 import functools
 import io
+import os
 import re
 import sys
 import tokenize
@@ -23,9 +26,22 @@ import tomllib
 RULES_PATH = Path(__file__).with_name("rules.toml")
 CONFIG_NAME = ".ai-tells-lint.toml"
 RULE_KINDS = ("words", "phrases", "regex")
-RULE_KEYS = {"id", "message", "source", "raw", "examples", *RULE_KINDS}
-CONFIG_KEYS = {"select", "ignore", "extend", "allow", "rule"}
+RULE_KEYS = {"id", "message", "source", "raw", "examples", "min-hits", *RULE_KINDS}
+CONFIG_KEYS = {
+    "select",
+    "ignore",
+    "extend",
+    "allow",
+    "min-hits",
+    "per-file-ignores",
+    "rule",
+}
 RULE_ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+_ID = r"[a-z0-9]+(?:-[a-z0-9]+)*"
+SUPPRESS = re.compile(
+    rf"ai-tells-lint:[ \t]*(allow-next-line|allow|off|on)\b"
+    rf"((?:[ \t]+{_ID})(?:[ \t]*,[ \t]*{_ID})*)?"
+)
 
 # BREAK replaces text outside the scanned region; nothing may match across it.
 # MASK replaces code spans, quotes and URLs inside prose; a sentence-level
@@ -73,6 +89,7 @@ class Rule:
     pattern: re.Pattern
     raw: bool
     examples: tuple
+    min_hits: int = 1
 
 
 @dataclass(frozen=True, order=True)
@@ -143,10 +160,17 @@ def _rule(entry, what):
     if not isinstance(raw, bool):
         raise ConfigError(f"{what}: raw must be true or false")
     examples = _strings(entry.get("examples", []), f"{what}: examples")
-    return _make_rule(rule_id, entry["message"], kind, items, raw, examples)
+    min_hits = _min_hits(entry.get("min-hits", 1), f"{what}: min-hits")
+    return _make_rule(rule_id, entry["message"], kind, items, raw, examples, min_hits)
 
 
-def _make_rule(rule_id, message, kind, items, raw, examples):
+def _min_hits(value, what):
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ConfigError(f"{what}: expected an integer of at least 1")
+    return value
+
+
+def _make_rule(rule_id, message, kind, items, raw, examples, min_hits=1):
     try:
         pattern = _compile(kind, items)
     except re.error as e:
@@ -159,6 +183,7 @@ def _make_rule(rule_id, message, kind, items, raw, examples):
         pattern=pattern,
         raw=raw,
         examples=tuple(examples),
+        min_hits=min_hits,
     )
 
 
@@ -197,10 +222,12 @@ def configure(rules, config):
             raise ConfigError(f"rule {rule.id}: duplicate rule id")
         by_id[rule.id] = rule
 
+    all_ids = set(by_id)
+
     def known(rule_id, what):
-        if rule_id not in by_id:
+        if rule_id not in all_ids:
             raise ConfigError(f"{what}: unknown rule id {rule_id!r}")
-        return by_id[rule_id]
+        return by_id.get(rule_id)
 
     extend = _table(config.get("extend", {}), "extend")
     allow = _table(config.get("allow", {}), "allow")
@@ -220,10 +247,27 @@ def configure(rules, config):
         items = [i for i in (*rule.items, *added) if i.casefold() not in drop]
         if items:
             by_id[rule_id] = _make_rule(
-                rule.id, rule.message, rule.kind, items, rule.raw, rule.examples
+                rule.id,
+                rule.message,
+                rule.kind,
+                items,
+                rule.raw,
+                rule.examples,
+                rule.min_hits,
             )
         else:
             del by_id[rule_id]
+
+    for rule_id, value in _table(config.get("min-hits", {}), "min-hits").items():
+        rule = known(rule_id, "min-hits")
+        min_hits = _min_hits(value, f"min-hits.{rule_id}")
+        if rule:
+            by_id[rule_id] = dataclasses.replace(rule, min_hits=min_hits)
+
+    per_file = _table(config.get("per-file-ignores", {}), "per-file-ignores")
+    for pattern, ids in per_file.items():
+        for rule_id in _strings(ids, f"per-file-ignores.{pattern}"):
+            known(rule_id, f"per-file-ignores.{pattern}")
 
     selected = by_id.keys()
     if "select" in config:
@@ -247,6 +291,8 @@ class Region:
     def __init__(self, text, keep_all):
         self.text = text
         self.chars = list(text) if keep_all else [_break(c) for c in text]
+        # spans of text that may hold suppression markers; None: the region
+        self.marker_spans = None
 
     def keep(self, start, end):
         self.chars[start:end] = self.text[start:end]
@@ -293,6 +339,15 @@ def scan_md(text):
             region.drop(pos, end)
             fence = m.group(1)
         pos = end + 1
+    # markers count only in html comments outside fenced and inline code
+    unfenced = str(region)
+    in_code = [m.span() for m in INLINE_MASKS[0].finditer(unfenced)]
+    region.marker_spans = [
+        m.span()
+        for m in MD_HTML_COMMENT.finditer(text)
+        if unfenced[m.start()] != BREAK
+        and not any(s <= m.start() < e for s, e in in_code)
+    ]
     for m in MD_HTML_COMMENT.finditer(text):
         region.drop(m.start(), m.end())
     return region
@@ -699,8 +754,40 @@ def _segments(region):
         pos = m.end()
 
 
+def _suppressions(scanned, region, line_starts):
+    """Map suppression markers to a function (line, rule id) -> bool."""
+    spans, source = scanned.marker_spans, scanned.text
+    if spans is None:
+        spans, source = [(0, len(region))], region
+    allowed = {}
+    switches = []
+    for start, end in spans:
+        for m in SUPPRESS.finditer(source, start, end):
+            line = bisect.bisect_right(line_starts, m.start())
+            directive = m.group(1)
+            ids = set(re.findall(_ID, m.group(2) or "")) or None
+            if directive in ("allow", "allow-next-line"):
+                target = line + (directive == "allow-next-line")
+                current = allowed.get(target, set())
+                allowed[target] = (
+                    None if ids is None or current is None else current | ids
+                )
+            else:
+                switches.append((line, directive == "off"))
+    switches.sort()
+
+    def suppressed(line, rule_id):
+        if line in allowed and (allowed[line] is None or rule_id in allowed[line]):
+            return True
+        i = bisect.bisect_right(switches, (line, True))
+        return i > 0 and switches[i - 1][1]
+
+    return suppressed
+
+
 def lint(text, kind, rules):
-    region = str(SCANNERS[kind](text))
+    scanned = SCANNERS[kind](text)
+    region = str(scanned)
     segments = list(_segments(region))
     prose = list(region)
     for start, end in segments:
@@ -708,16 +795,35 @@ def lint(text, kind, rules):
     prose = "".join(prose)
 
     line_starts = [0] + [m.end() for m in re.finditer("\n", text)]
+    suppressed = _suppressions(scanned, region, line_starts)
     hits = set()
     for rule in rules:
         source = region if rule.raw else prose
         for start, end in segments:
+            found = []
             for m in rule.pattern.finditer(source, start, end):
                 line = bisect.bisect_right(line_starts, m.start())
+                if suppressed(line, rule.id):
+                    continue
                 col = m.start() - line_starts[line - 1] + 1
                 matched = " ".join(text[m.start() : m.end()].split())
-                hits.add(Hit(line, col, rule.id, rule.message, matched))
+                found.append(Hit(line, col, rule.id, rule.message, matched))
+            if len(found) >= rule.min_hits:
+                hits.update(found)
     return sorted(hits)
+
+
+def _ignored_rules(name, per_file):
+    paths = {
+        Path(name).as_posix(),
+        Path(os.path.relpath(os.path.abspath(name))).as_posix(),
+    }
+    return {
+        rule_id
+        for pattern, ids in per_file.items()
+        if any(fnmatch.fnmatchcase(p, pattern) for p in paths)
+        for rule_id in ids
+    }
 
 
 def main(argv):
@@ -737,13 +843,13 @@ def main(argv):
     args = parser.parse_args(argv)
 
     config_path = args.config or find_config(Path.cwd())
-    rules = load_rules()
-    if config_path:
-        try:
-            rules = configure(rules, load_config(config_path))
-        except ConfigError as e:
-            print(f"ai-tells-lint: {config_path}: {e}", file=sys.stderr)
-            return 2
+    try:
+        config = load_config(config_path) if config_path else {}
+        rules = configure(load_rules(), config)
+    except ConfigError as e:
+        print(f"ai-tells-lint: {config_path}: {e}", file=sys.stderr)
+        return 2
+    per_file = config.get("per-file-ignores", {})
 
     status = 0
     for name in args.files:
@@ -753,7 +859,9 @@ def main(argv):
             status = 2
             continue
         try:
-            hits = lint(Path(name).read_text(encoding="utf-8"), kind, rules)
+            ignored = _ignored_rules(name, per_file)
+            file_rules = [r for r in rules if r.id not in ignored]
+            hits = lint(Path(name).read_text(encoding="utf-8"), kind, file_rules)
         except (OSError, UnicodeDecodeError, ScanError) as e:
             print(f"{name}: {e}", file=sys.stderr)
             status = 2
