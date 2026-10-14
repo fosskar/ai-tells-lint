@@ -21,6 +21,7 @@
         "aarch64-linux"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      treefmtFor = forAllSystems (pkgs: treefmt-nix.lib.evalModule pkgs ./nix/treefmt.nix);
     in
     {
       packages = forAllSystems (pkgs: rec {
@@ -36,6 +37,7 @@
           inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) ai-tells-lint;
         in
         {
+          formatting = treefmtFor.${pkgs.stdenv.hostPlatform.system}.config.build.check self;
           inherit ai-tells-lint;
           inherit (ai-tells-lint.passthru.tests) unit cli;
           treefmt-module = pkgs.callPackage ./nix/treefmt-module-test.nix {
@@ -43,6 +45,19 @@
             treefmtModule = self.treefmtModules.default;
           };
         }
+      );
+
+      devShells = forAllSystems (pkgs: {
+        default = pkgs.mkShell {
+          packages = [
+            pkgs.python3
+            treefmtFor.${pkgs.stdenv.hostPlatform.system}.config.build.wrapper
+          ];
+        };
+      });
+
+      formatter = forAllSystems (
+        pkgs: treefmtFor.${pkgs.stdenv.hostPlatform.system}.config.build.wrapper
       );
     };
 }
