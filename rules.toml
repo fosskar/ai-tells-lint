@@ -1,0 +1,367 @@
+# Built-in rules of ai-tells-lint. The `source` of each rule names the
+# references that describe the pattern; see Credits in README.md. Word and
+# phrase lists are sorted alphabetically. The regular expressions were written
+# for ai-tells-lint from plain descriptions of each pattern.
+
+[[rule]]
+id = "em-dash"
+message = "em dash; use a comma, colon, parentheses or a new sentence"
+source = "vale-ai-tells EmDashUsage; Wikipedia Signs of AI writing; fzakaria check-prose"
+regex = ['—']
+examples = ["Builds run remotely — the worker pulls jobs."]
+
+[[rule]]
+id = "ai-vocabulary"
+message = "word overused by LLMs; use a plainer or more specific word"
+source = "Wikipedia AI vocabulary; fzakaria writingStyle; vale-ai-tells OverusedVocabulary; HN tyre"
+words = [
+  "bolster",
+  "bolstered",
+  "bolstering",
+  "bolsters",
+  "bustling",
+  "commendable",
+  "cutting-edge",
+  "democratize",
+  "democratizes",
+  "democratizing",
+  "embark",
+  "embarking",
+  "embarks",
+  "empower",
+  "empowering",
+  "empowerment",
+  "empowers",
+  "enduring",
+  "ever-evolving",
+  "fostered",
+  "fostering",
+  "fosters",
+  "game-changer",
+  "game-changing",
+  "garner",
+  "garnered",
+  "garnering",
+  "garners",
+  "genuinely",
+  "groundbreaking",
+  "holistic",
+  "holistically",
+  "indelible",
+  "interplay",
+  "intricacies",
+  "intricate",
+  "intricately",
+  "leverage",
+  "leveraged",
+  "leverages",
+  "leveraging",
+  "load-bearing",
+  "meticulous",
+  "meticulously",
+  "multifaceted",
+  "myriad",
+  "nuanced",
+  "paramount",
+  "pivotal",
+  "plethora",
+  "profound",
+  "profoundly",
+  "seamless",
+  "seamlessly",
+  "showcase",
+  "showcased",
+  "showcases",
+  "showcasing",
+  "supercharge",
+  "supercharges",
+  "supercharging",
+  "tapestries",
+  "tapestry",
+  "testament",
+  "transformative",
+  "unleash",
+  "unleashes",
+  "unleashing",
+  "unparalleled",
+  "vibrant",
+]
+examples = ["The scheduler plays a pivotal part."]
+
+[[rule]]
+id = "delve"
+message = "\"delve into\" is a classic LLM tell; say \"look at\" or \"explain\""
+source = "vale-ai-tells OverusedVocabulary; Wikipedia AI vocabulary; fzakaria writingStyle"
+phrases = [
+  "delve deeper",
+  "delve into",
+  "delved into",
+  "delves into",
+  "delving deeper",
+  "delving into",
+]
+examples = ["We delve into the details."]
+
+[[rule]]
+id = "copula-dodge"
+message = "inflated copula; write \"is\" or \"are\""
+source = "vale-ai-tells ServesAsDodge; Wikipedia avoidance of basic copulatives; HN tyre"
+phrases = [
+  "boasts a",
+  "boasts an",
+  "boasts the",
+  "marks a significant",
+  "marks a turning",
+  "represents a fundamental",
+  "represents a paradigm",
+  "represents a significant",
+  "served as a",
+  "served as an",
+  "served as the",
+  "serves as a",
+  "serves as an",
+  "serves as the",
+  "serving as a",
+  "serving as an",
+  "serving as the",
+  "stands as a",
+  "stands as an",
+  "stands as the",
+  "stood as a",
+  "stood as an",
+  "stood as the",
+]
+examples = ["The gateway serves as the entry point."]
+
+[[rule]]
+id = "puffery"
+message = "significance inflation; state the concrete fact"
+source = "Wikipedia undue emphasis and promotional language; vale-ai-tells PromotionalPuffery; fzakaria writingStyle"
+phrases = [
+  "continues to thrive",
+  "deeply rooted",
+  "ever-changing landscape",
+  "evolving landscape",
+  "has emerged as",
+  "hidden gem",
+  "in the heart of",
+  "key turning point",
+  "nestled among",
+  "nestled between",
+  "nestled in",
+  "rich cultural heritage",
+  "rich heritage",
+  "rich history",
+  "setting the stage for",
+  "underscores the importance",
+  "underscores the need",
+  "underscoring the importance",
+  "underscoring the need",
+]
+examples = ["The town is nestled in the hills."]
+
+[[rule]]
+id = "plays-a-role"
+message = "significance inflation; say what it does"
+source = "Willison llm-cliche-highlighter; Wikipedia undue emphasis"
+regex = [
+  '\bplay(?:s|ed|ing)?\s+an?\s+(?:[\w-]+\s+)?(?:crucial|pivotal|vital|key|significant|central|critical|important)\s+role\b',
+]
+examples = ["The cache plays a crucial role in builds."]
+
+[[rule]]
+id = "didactic-hedge"
+message = "didactic filler; state the fact or delete it"
+source = "Willison llm-cliche-highlighter; fzakaria writingStyle; HN tyre"
+regex = [
+  '\bit(?:\s+is|\s+was|[\x27\u2019]s)\s+(?:also\s+)?(?:important|worth|crucial|essential|vital)\s+to\s+(?:note|remember|understand|recognize|mention|pause|consider)\b',
+  '\bit(?:\s+is|\s+was|[\x27\u2019]s)\s+(?:also\s+)?(?:important|worth|crucial|essential|vital)\s+(?:noting|mentioning|remembering)\b',
+  '\bit\s+should\s+be\s+noted\b',
+  '\bworth\s+(?:noting|mentioning|stating\s+plainly)\b',
+  '\bneedless\s+to\s+say\b',
+]
+examples = ["It is important to note that the cache is local."]
+
+[[rule]]
+id = "vague-attribution"
+message = "vague attribution; name the source or drop the claim"
+source = "Willison llm-cliche-highlighter; Wikipedia vague attributions; vale-ai-tells VagueAttributions"
+regex = [
+  '\b(?:(?:many|some|several|most|numerous)\s+)?(?:experts|critics|observers|scholars|analysts|commentators)\s+(?:(?:have|often|widely)\s+)?(?:argue[sd]?|note[sd]?|suggest(?:s|ed)?|believe[sd]?|agree[sd]?|contend(?:s|ed)?|caution(?:s|ed)?|claim(?:s|ed)?|point(?:s|ed)?\s+out)\b',
+  '\bindustry\s+reports?\s+(?:suggest(?:s|ed)?|indicate[sd]?|show(?:s|ed|n)?)\b',
+  '\b(?:studies|research)\s+(?:show|shows|suggest|suggests|indicate|indicates|has\s+shown)\s+that\b',
+]
+examples = ["Experts argue that caching helps."]
+
+[[rule]]
+id = "challenges-boilerplate"
+message = "challenges-and-outlook boilerplate; say what the problem is"
+source = "Wikipedia outline-like conclusions; Willison llm-cliche-highlighter; vale-ai-tells DespiteChallenges"
+regex = [
+  '\bdespite\s+(?:these|those|such|its|their|the|numerous|significant|ongoing)\s+(?:[\w-]+\s+)?(?:challenges|limitations|drawbacks|hurdles|setbacks)\b',
+  '\bchallenges\s+remain\b',
+  '\bremains\s+to\s+be\s+seen\b',
+  '\bonly\s+time\s+will\s+tell\b',
+]
+examples = ["Despite these challenges, the setup works."]
+
+[[rule]]
+id = "chatbot-phrase"
+message = "chatbot correspondence; delete it"
+source = "Wikipedia collaborative communication; vale-ai-tells ClosingPleasantries and SycophancyMarkers; HN tyre"
+phrases = [
+  "absolutely!",
+  "as a large language model",
+  "as an AI language model",
+  "as of my knowledge cutoff",
+  "as of my last update",
+  "certainly!",
+  "don't hesitate to",
+  "excellent question",
+  "feel free to ask",
+  "feel free to reach out",
+  "great question",
+  "happy coding",
+  "happy to help",
+  "hope this helps",
+  "hopefully this helps",
+  "I hope this clarifies",
+  "I hope this helps",
+  "I'd be happy to",
+  "is there anything else",
+  "let me know if there's anything",
+  "let me know if you have any questions",
+  "let me know if you need",
+  "my knowledge cutoff",
+  "of course!",
+  "say the word",
+  "would you like me to",
+  "you're absolutely right",
+  "you're right to push back",
+]
+examples = ["I hope this helps!"]
+
+[[rule]]
+id = "negative-parallelism"
+message = "negative parallelism; state the positive claim"
+source = "Wikipedia negative parallelisms; Willison llm-cliche-highlighter; fzakaria writingStyle; HN tyre"
+regex = [
+  '\bnot\s+(?:just|merely|simply)\b[^.!?;:,]{0,60},\s*but\b',
+  '(?<!\bsince\s)(?<!\bbecause\s)(?<!\bas\s)(?<!\bif\s)(?<!\bwhen\s)(?<!\bwhile\s)\b(?:it|this|that)(?:\s+is\s+not|\s+was\s+not|[\x27\u2019]s\s+not)\b[^.!?]{0,60}?\s*[,;\u2014]\s*(?:it|this|that)(?:\s+is|\s+was|[\x27\u2019]s)\b',
+  '\b(?:isn[\x27\u2019]t|is\s+not)\s+(?:just|only|merely)\b[^.!?]{0,60}?\s*[.;,\u2014]\s*it(?:[\x27\u2019]s|\s+is)\b',
+]
+examples = ["It is not just a cache, but a build farm."]
+
+[[rule]]
+id = "performative-honesty"
+message = "announced honesty; just say it"
+source = "Willison llm-cliche-highlighter; fzakaria writingStyle; HN tyre"
+phrases = [
+  "frankly,",
+  "honestly,",
+  "I will not pretend",
+  "I won't pretend",
+  "in all honesty",
+  "let me be blunt",
+  "let me be clear",
+  "let me be direct",
+  "let me be honest",
+  "the honest answer",
+  "to be blunt",
+  "to be frank",
+  "to be honest",
+  "truthfully,",
+]
+examples = ["To be honest, the cache is slow."]
+
+[[rule]]
+id = "staged-reveal"
+message = "stage-managed reveal; state the point"
+source = "Willison llm-cliche-highlighter; fzakaria writingStyle; HN tyre"
+regex = [
+  '\bhere(?:[\x27\u2019]s|\s+is)\s+(?:the|a)\s+(?:twist|thing|catch|kicker|rub)\b',
+  '\bthe\s+punchline\s+(?:is|was)\b',
+  '\bplot\s+twist\b',
+  '\bthe\s+deeper\s+point\b',
+  '\bthe\s+key\s+insight\b',
+  '\bthat[\x27\u2019]s\s+the\s+trap\b',
+  '\bthis\s+matters\s+because\b',
+  '\b(?:that|this)(?:\s+is|\s+was|[\x27\u2019]s)\s+the\s+(?:whole|entire)\s+(?:point|game)\b',
+]
+examples = ["Here's the thing: the cache is local."]
+
+[[rule]]
+id = "participle-tail"
+message = "participle tail adding commentary; cut it or make it a sentence"
+source = "Wikipedia superficial analyses; Willison llm-cliche-highlighter; fzakaria writingStyle"
+regex = [
+  ',\s*(?:highlighting|underscoring|emphasizing|showcasing|symbolizing|cementing|solidifying)\s+(?:its|their|the|how|his|her)\b',
+]
+examples = ["The service restarted, highlighting the importance of tests."]
+
+[[rule]]
+id = "signposting"
+message = "explainer signposting; get to the point"
+source = "vale-ai-tells UnpackExplore and OpeningCliches; Wikipedia AI vocabulary; HN tyre"
+phrases = [
+  "at the end of the day",
+  "deep dive",
+  "dive into",
+  "full stop",
+  "in conclusion",
+  "in the realm of",
+  "in today's fast-paced",
+  "let's break it down",
+  "let's break this down",
+  "let's dive in",
+  "let's dive into",
+  "without further ado",
+]
+examples = ["Let's dive into the details."]
+
+[[rule]]
+id = "therapy-voice"
+message = "therapy voice; delete it"
+source = "Willison llm-cliche-highlighter; fzakaria writingStyle"
+phrases = [
+  "it is not nothing",
+  "it was not nothing",
+  "it's not nothing",
+  "sit with it",
+  "sit with that",
+  "sit with this",
+  "sits with it",
+  "sits with that",
+  "sits with this",
+  "sitting with it",
+  "sitting with that",
+  "sitting with this",
+  "that is not nothing",
+  "that was not nothing",
+  "that's not nothing",
+  "this is not nothing",
+  "this was not nothing",
+  "worth naming",
+  "you already know the answer",
+]
+examples = ["That's not nothing."]
+
+[[rule]]
+id = "markup-artefact"
+message = "chatbot citation or tracking artefact; remove it"
+source = "Wikipedia internal formatting and reference markup bugs; Willison llm-cliche-highlighter; vale-ai-tells CommitAttribution"
+raw = true
+regex = [
+  'oaicite|oai_citation|attributableIndex|grok_card|grok_render|ppl-ai-file-upload',
+  'contentReference\[',
+  'turn0(?:search|news|image|view)\d',
+  '\[cite:\s*\d',
+  '【\d+†',
+  'utm_source=(?:chatgpt\.com|openai|copilot\.com|perplexity)',
+  'generated\s+with\s+\[?claude\s+code',
+  'co-authored-by:\s*claude',
+]
+examples = [
+  "see https://example.com/?utm_source=chatgpt.com",
+  "text :contentReference[oaicite:0]",
+]
