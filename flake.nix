@@ -7,6 +7,11 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nixbot = {
+      url = "github:Mic92/nixbot";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.treefmt-nix.follows = "treefmt-nix";
+    };
   };
 
   outputs =
@@ -14,6 +19,7 @@
       self,
       nixpkgs,
       treefmt-nix,
+      nixbot,
     }:
     let
       systems = [
@@ -24,6 +30,12 @@
       treefmtFor = forAllSystems (pkgs: treefmt-nix.lib.evalModule pkgs ./nix/treefmt.nix);
     in
     {
+      # nixbot scheduled effects: flake input updates
+      herculesCI = import ./nix/effects.nix {
+        pkgs = nixpkgs.legacyPackages.x86_64-linux;
+        inherit nixbot;
+      };
+
       packages = forAllSystems (pkgs: rec {
         ai-tells-lint = pkgs.callPackage ./nix/package.nix { };
         default = ai-tells-lint;
